@@ -46,6 +46,31 @@ namespace gdjs {
 
     _wasDisposed: boolean = false;
 
+// === FSR Internal Rendering ===
+  private _fsrInternalScale: number = 0.75; // 1.0 = native, 0.75 = balanced
+  private _fsrRT?: PIXI.RenderTexture;
+  private _fsrSprite?: PIXI.Sprite;
+
+  private _ensureFsrRenderTarget() {
+    const r = this._pixiRenderer;
+    const w = Math.max(1, Math.floor(r.screen.width * this._fsrInternalScale));
+    const h = Math.max(1, Math.floor(r.screen.height * this._fsrInternalScale));
+
+    if (!this._fsrRT || this._fsrRT.width !== w || this._fsrRT.height !== h) {
+      if (this._fsrRT) this._fsrRT.destroy(true);
+      this._fsrRT = PIXI.RenderTexture.create({ width: w, height: h });
+
+      if (!this._fsrSprite) {
+        this._fsrSprite = new PIXI.Sprite(this._fsrRT);
+        this._fsrSprite.filters = [];
+      } else {
+        this._fsrSprite.texture = this._fsrRT;
+      }
+    }
+
+    // expose for FSR effect (so the shader knows input resolution)
+    (this as any)._fsrInternalSize = [w, h];
+  }
     /**
      * @param game The game that is being rendered
      * @param forceFullscreen If fullscreen should be always activated

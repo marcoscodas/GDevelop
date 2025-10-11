@@ -20,6 +20,34 @@ namespace gdjs {
     };
     private _backgroundColor: THREE.Color | null = null;
 
+    // === FSR Internal Rendering ===
+    private _fsrInternalScale: number = 0.75; // 1.0 = native, 0.75 = balanced
+    private _fsrRT?: PIXI.RenderTexture;
+    private _fsrSprite?: PIXI.Sprite;
+
+    private _ensureFsrRenderTarget() {
+      const renderer = this._runtimeGameRenderer?.getPIXIRenderer();
+      if (!renderer) return;
+
+      const w = Math.max(1, Math.floor(renderer.screen.width * this._fsrInternalScale));
+      const h = Math.max(1, Math.floor(renderer.screen.height * this._fsrInternalScale));
+
+      if (!this._fsrRT || this._fsrRT.width !== w || this._fsrRT.height !== h) {
+        if (this._fsrRT) this._fsrRT.destroy(true);
+        this._fsrRT = PIXI.RenderTexture.create({ width: w, height: h });
+
+        if (!this._fsrSprite) {
+          this._fsrSprite = new PIXI.Sprite(this._fsrRT);
+          this._fsrSprite.filters = [];
+        } else {
+          this._fsrSprite.texture = this._fsrRT;
+        }
+      }
+
+      // Expose internal resolution for the FSR effect shader (FSR.ts) to read.
+      (this._runtimeGameRenderer as any)._fsrInternalSize = [w, h];
+    }
+
     constructor(
       runtimeScene: gdjs.RuntimeScene,
       runtimeGameRenderer: gdjs.RuntimeGamePixiRenderer | null
@@ -55,12 +83,21 @@ namespace gdjs {
       for (const runtimeLayer of this._runtimeScene._orderedLayers) {
         runtimeLayer.getRenderer().onGameResolutionResized();
       }
+
+      // Keep FSR buffer in sync with resolution changes.
+      this._ensureFsrRenderTarget();
     }
 
     onSceneUnloaded() {
       // TODO (3D): call the method with the same name on RuntimeLayers so they can dispose?
-    }
 
+      // Cleanup FSR resources
+      if (this._fsrRT) {
+        this._fsrRT.destroy(true);
+        this._fsrRT = undefined;
+      }
+      this._fsrSprite = undefined;
+    }
     render() {
       const runtimeGameRenderer = this._runtimeGameRenderer;
       if (!runtimeGameRenderer) return;
@@ -244,7 +281,6 @@ namespace gdjs {
             }
           }
         }
-
         const debugContainer = this._runtimeScene
           .getDebuggerRenderer()
           .getRendererObject();
@@ -265,7 +301,7 @@ namespace gdjs {
         // Uncomment to display some debug metrics from Three.js.
         // console.log(threeRenderer.info);
       } else {
-        // 2D only rendering.
+        // 2D only rendering **with FSR**.
 
         // Render lights in render textures first.
         for (const runtimeLayer of this._runtimeScene._orderedLayers) {
@@ -276,14 +312,29 @@ namespace gdjs {
           }
         }
 
-        // this._renderProfileText(); //Uncomment to display profiling times
+        // Prepare the internal lower-resolution render target
+        this._ensureFsrRenderTarget();
 
-        // Render all the layers then.
-        // TODO: replace by a loop like in 3D?
+        // Render all the layers to the low-res RT (or fallback to native)
         pixiRenderer.background.color = this._runtimeScene.getBackgroundColor();
-        pixiRenderer.render(this._pixiContainer, {
-          clear: this._runtimeScene.getClearCanvas(),
-        });
+
+        if (this._fsrRT) {
+          pixiRenderer.render(this._pixiContainer, {
+            renderTexture: this._fsrRT,
+            clear: this._runtimeScene.getClearCanvas(),
+          });
+        } else {
+          // Fallback (shouldn’t happen, but safe)
+          pixiRenderer.render(this._pixiContainer, {
+            clear: this._runtimeScene.getClearCanvas(),
+          });
+        }
+
+        // Present the RT upscaled to the screen
+        if (this._fsrSprite) {
+          pixiRenderer.render(this._fsrSprite);
+        }
+
         this._layerRenderingMetrics.rendered2DLayersCount++;
       }
 
@@ -369,7 +420,6 @@ namespace gdjs {
         threeRenderer.render(threeScene, threeCamera);
       }
     }
-
     _renderProfileText() {
       const profiler = this._runtimeScene.getProfiler();
       if (!profiler) {

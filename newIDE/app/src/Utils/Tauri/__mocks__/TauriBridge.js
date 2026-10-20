@@ -17,13 +17,15 @@
  * implementations of all `jest.fn()` before each test. The defaults are
  * therefore applied at load time and again in `beforeEach`.
  */
+// $FlowFixMe[cannot-resolve-module] - Node's path module, available in Jest.
 import path from 'path';
 import type { TauriBridgeInterface, TauriBridgeEnv } from '../TauriBridge';
 
-type MockedTauriBridge = $ObjMap<
-  TauriBridgeInterface,
-  () => JestMockFn<any, any>
->;
+// Keyed by the TauriBridgeInterface method names (Babel cannot parse Flow
+// mapped types, and $ObjMap was removed from Flow).
+type MockedTauriBridge = {
+  [key: $Keys<TauriBridgeInterface>]: JestMockFn<any, any>,
+};
 
 const defaultEnv: TauriBridgeEnv = {
   platform: 'linux',

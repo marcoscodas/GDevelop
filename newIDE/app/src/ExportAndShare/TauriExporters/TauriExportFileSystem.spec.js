@@ -8,7 +8,10 @@ describe('TauriExportFileSystem', () => {
 
   describe('absolute paths', () => {
     test('it recognizes win32 absolute paths', () => {
-      const fileSystem = new TauriExportFileSystem({ textFiles: [] });
+      const fileSystem = new TauriExportFileSystem({
+        textFiles: [],
+        rootDir: '/tmp/preview',
+      });
 
       expect(fileSystem.isAbsolute('C:\\Users\\foo\\game\\image.png')).toBe(
         true
@@ -18,7 +21,10 @@ describe('TauriExportFileSystem', () => {
     });
 
     test('it recognizes posix absolute paths', () => {
-      const fileSystem = new TauriExportFileSystem({ textFiles: [] });
+      const fileSystem = new TauriExportFileSystem({
+        textFiles: [],
+        rootDir: '/tmp/preview',
+      });
 
       expect(fileSystem.isAbsolute('/home/foo/game/image.png')).toBe(true);
       expect(fileSystem.isAbsolute('game/image.png')).toBe(false);
@@ -30,14 +36,17 @@ describe('TauriExportFileSystem', () => {
       const consoleError = jest
         .spyOn(console, 'error')
         .mockImplementation(() => {});
-      const fileSystem = new TauriExportFileSystem({ textFiles: [] });
+      const fileSystem = new TauriExportFileSystem({
+        textFiles: [],
+        rootDir: '/tmp/preview',
+      });
       const source = 'C:\\Users\\foo\\game\\image.png';
       const dest = 'C:\\Users\\foo\\cache\\preview\\game\\image.png';
 
       expect(fileSystem.copyFile(source, dest)).toBe(true);
       expect(consoleError).not.toHaveBeenCalled();
 
-      const manifest = fileSystem.buildExportManifest({
+      const manifest = fileSystem.toExportManifest({
         outputDir: 'C:\\Users\\foo\\cache\\preview',
         clearOutputDir: true,
       });
@@ -49,14 +58,17 @@ describe('TauriExportFileSystem', () => {
       const consoleError = jest
         .spyOn(console, 'error')
         .mockImplementation(() => {});
-      const fileSystem = new TauriExportFileSystem({ textFiles: [] });
+      const fileSystem = new TauriExportFileSystem({
+        textFiles: [],
+        rootDir: '/tmp/preview',
+      });
       const source = '/home/foo/game/image.png';
       const dest = '/home/foo/cache/preview/game/image.png';
 
       expect(fileSystem.copyFile(source, dest)).toBe(true);
       expect(consoleError).not.toHaveBeenCalled();
 
-      const manifest = fileSystem.buildExportManifest({
+      const manifest = fileSystem.toExportManifest({
         outputDir: '/home/foo/cache/preview',
         clearOutputDir: true,
       });
@@ -65,14 +77,17 @@ describe('TauriExportFileSystem', () => {
     });
 
     test('it still marks URLs to be downloaded rather than copied', () => {
-      const fileSystem = new TauriExportFileSystem({ textFiles: [] });
+      const fileSystem = new TauriExportFileSystem({
+        textFiles: [],
+        rootDir: '/tmp/preview',
+      });
 
       fileSystem.copyFile(
         'https://example.com/music.ogg',
         '/home/foo/cache/preview/music.ogg'
       );
 
-      const manifest = fileSystem.buildExportManifest({
+      const manifest = fileSystem.toExportManifest({
         outputDir: '/home/foo/cache/preview',
         clearOutputDir: true,
       });
@@ -88,7 +103,10 @@ describe('TauriExportFileSystem', () => {
 
   describe('export manifest', () => {
     test('it builds the ExportManifest shape expected by flushExport', () => {
-      const fileSystem = new TauriExportFileSystem({ textFiles: [] });
+      const fileSystem = new TauriExportFileSystem({
+        textFiles: [],
+        rootDir: '/tmp/preview',
+      });
       fileSystem.writeToFile(
         '/home/foo/cache/preview/index.html',
         '<html></html>'
@@ -102,7 +120,7 @@ describe('TauriExportFileSystem', () => {
         '/home/foo/cache/preview/music.ogg'
       );
 
-      const manifest = fileSystem.buildExportManifest({
+      const manifest = fileSystem.toExportManifest({
         outputDir: '/home/foo/cache/preview',
         clearOutputDir: true,
       });

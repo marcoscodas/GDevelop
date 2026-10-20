@@ -1,8 +1,11 @@
 // @flow
-import TauriResourceFetcher from './TauriResourceFetcher';
-import TauriResourceMover from './TauriResourceMover';
+import TauriResourceFetcher from '../ResourceFetcher/TauriResourceFetcher';
+import TauriResourceMover from '../ResourceMover/TauriResourceMover';
 import TauriBridge from '../../Utils/Tauri/TauriBridge';
 const gd: libGDevelop = global.gd;
+
+// Only `internalName` is read by the fetcher and mover.
+const fakeStorageProvider = (internalName: string): any => ({ internalName });
 
 jest.mock('../../Utils/Tauri/TauriBridge');
 
@@ -24,7 +27,7 @@ describe('TauriResourceFetcher', () => {
         {
           project,
           fileMetadata: { fileIdentifier: 'C:\\Users\\foo\\game\\game.json' },
-          storageProvider: { internalName: 'LocalFile' },
+          storageProvider: fakeStorageProvider('LocalFile'),
           storageProviderOperations: {},
           onProgress: jest.fn(),
         }
@@ -39,7 +42,7 @@ describe('TauriResourceFetcher', () => {
         {
           project,
           fileMetadata: { fileIdentifier: 'whatever' },
-          storageProvider: { internalName: 'NotAStorageProvider' },
+          storageProvider: fakeStorageProvider('NotAStorageProvider'),
           storageProviderOperations: {},
           onProgress: jest.fn(),
         }
@@ -68,11 +71,11 @@ describe('TauriResourceMover', () => {
           onProgress: jest.fn(),
           oldFileMetadata: { fileIdentifier: '/home/foo/game/game.json' },
           newFileMetadata: { fileIdentifier: '/home/foo/new/game.json' },
-          oldStorageProvider: { internalName: 'LocalFile' },
+          oldStorageProvider: fakeStorageProvider('LocalFile'),
           oldStorageProviderOperations: {},
-          newStorageProvider: { internalName: 'LocalFile' },
+          newStorageProvider: fakeStorageProvider('LocalFile'),
           newStorageProviderOperations: {},
-          authenticatedUser: undefined,
+          authenticatedUser: (undefined: any),
         }
       )
     ).resolves.toEqual({ erroredResources: [] });
@@ -92,11 +95,11 @@ describe('TauriResourceMover', () => {
         onProgress: jest.fn(),
         oldFileMetadata: { fileIdentifier: '/home/foo/game/game.json' },
         newFileMetadata: { fileIdentifier: '/home/foo/new/game.json' },
-        oldStorageProvider: { internalName: 'LocalFile' },
+        oldStorageProvider: fakeStorageProvider('LocalFile'),
         oldStorageProviderOperations: {},
-        newStorageProvider: { internalName: 'LocalFile' },
+        newStorageProvider: fakeStorageProvider('LocalFile'),
         newStorageProviderOperations: {},
-        authenticatedUser: undefined,
+        authenticatedUser: (undefined: any),
       }
     );
 

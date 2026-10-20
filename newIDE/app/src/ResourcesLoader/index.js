@@ -124,11 +124,7 @@ export default class ResourcesLoader {
     urlOrFilename: string,
     { isResourceForPixi, disableCacheBurst }: LoadingOptions
   ): string {
-    if (
-      isTauri() &&
-      isLocalFile(urlOrFilename) &&
-      project.getProjectFile()
-    ) {
+    if (isTauri() && isLocalFile(urlOrFilename) && project.getProjectFile()) {
       const cachedUrl = ResourcesLoader._cache.getCachedUrl(
         project,
         urlOrFilename
@@ -139,10 +135,7 @@ export default class ResourcesLoader {
       return this._cache.cacheLocalFileUrl(
         project,
         urlOrFilename,
-        TauriBridge.getResourceUrlSync(
-          project.getProjectFile(),
-          urlOrFilename
-        ),
+        TauriBridge.getResourceUrlSync(project.getProjectFile(), urlOrFilename),
         !!disableCacheBurst
       );
     }

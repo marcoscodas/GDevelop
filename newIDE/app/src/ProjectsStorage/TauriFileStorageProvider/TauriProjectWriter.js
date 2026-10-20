@@ -101,10 +101,7 @@ const deleteExistingFilesFromDirs = async (
         const filenames = await TauriBridge.readDir(dirPath);
         await Promise.all(
           filenames.map(async file => {
-            const fileToRemovePath = await TauriBridge.join(
-              dirPath,
-              file.name
-            );
+            const fileToRemovePath = await TauriBridge.join(dirPath, file.name);
             try {
               await TauriBridge.remove(fileToRemovePath);
             } catch (e) {

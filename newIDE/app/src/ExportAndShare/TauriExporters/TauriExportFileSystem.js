@@ -88,8 +88,7 @@ const isAbsolutePath = (aPath: string): boolean =>
 const isWin32Flavored = (aPath: string): boolean =>
   isWindowsAbsolute(aPath) || aPath.indexOf('\\') !== -1;
 
-const sepFor = (aPath: string): string =>
-  isWin32Flavored(aPath) ? '\\' : '/';
+const sepFor = (aPath: string): string => (isWin32Flavored(aPath) ? '\\' : '/');
 
 const splitRoot = (aPath: string): {| root: string, rest: string |} => {
   const driveMatch = aPath.match(WIN32_DRIVE_RE);
@@ -175,11 +174,11 @@ const basenameOf = (aPath: string, ext?: string): string => {
 
 const relativePath = (fromDirectory: string, toPath: string): string => {
   const sep = sepFor(fromDirectory) || sepFor(toPath);
-  const fromSegments = splitRoot(normalizePath(fromDirectory)).rest
-    .split(/[\\/]+/)
+  const fromSegments = splitRoot(normalizePath(fromDirectory))
+    .rest.split(/[\\/]+/)
     .filter(Boolean);
-  const toSegments = splitRoot(normalizePath(toPath)).rest
-    .split(/[\\/]+/)
+  const toSegments = splitRoot(normalizePath(toPath))
+    .rest.split(/[\\/]+/)
     .filter(Boolean);
 
   let commonLength = 0;
@@ -225,9 +224,8 @@ export default class TauriExportFileSystem {
   constructor({ textFiles, rootDir }: ConstructorArgs) {
     this._rootDir = rootDir;
     textFiles.forEach(textFileDescriptor => {
-      this._textFiles[
-        normalizePath(textFileDescriptor.filePath)
-      ] = textFileDescriptor.text;
+      this._textFiles[normalizePath(textFileDescriptor.filePath)] =
+        textFileDescriptor.text;
     });
   }
 

@@ -13,7 +13,9 @@ import slugs from 'slugs';
 // every other Tauri file, including this one, goes through it instead -
 // generated code is written with `TauriBridge.writeTextFile`, never a raw
 // `fs` call.
-import TauriBridge, { type TauriBridgeEnv } from '../../Utils/Tauri/TauriBridge';
+import TauriBridge, {
+  type TauriBridgeEnv,
+} from '../../Utils/Tauri/TauriBridge';
 
 /**
  * Create the EventsFunctionCodeWriter that writes generated code for events
@@ -57,10 +59,7 @@ export const makeTauriEventsFunctionCodeWriter = ({
   const getPathFor = (codeNamespace: string): string =>
     `${outputDir}${env.pathSeparator}${slugs(codeNamespace)}.js`;
 
-  const writeCode = (
-    codeNamespace: string,
-    code: string
-  ): Promise<void> => {
+  const writeCode = (codeNamespace: string, code: string): Promise<void> => {
     const includeFile = getPathFor(codeNamespace);
     onWriteFile({ includeFile, content: code });
     return TauriBridge.writeTextFile(includeFile, code);

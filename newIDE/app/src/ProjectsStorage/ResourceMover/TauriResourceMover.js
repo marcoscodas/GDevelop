@@ -80,9 +80,7 @@ export const moveAllLocalFileResourcesToLocalFileResources = async ({
   const resourceNamesToCopy = allResourceNames.filter(resourceName => {
     const resourceFile = resourcesManager.getResource(resourceName).getFile();
     return (
-      !!resourceFile &&
-      !isURL(resourceFile) &&
-      !isAbsolutePath(resourceFile)
+      !!resourceFile && !isURL(resourceFile) && !isAbsolutePath(resourceFile)
     );
   });
 
@@ -90,9 +88,7 @@ export const moveAllLocalFileResourcesToLocalFileResources = async ({
 
   const filesToCopy = await Promise.all(
     resourceNamesToCopy.map(async resourceName => {
-      const resourceFile = resourcesManager
-        .getResource(resourceName)
-        .getFile();
+      const resourceFile = resourcesManager.getResource(resourceName).getFile();
       const source = await TauriBridge.join(oldProjectDir, resourceFile);
       const dest = await TauriBridge.join(newProjectDir, resourceFile);
       return { resourceName, source, dest };

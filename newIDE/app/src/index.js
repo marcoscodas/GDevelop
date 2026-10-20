@@ -13,6 +13,7 @@ import {
 import { registerServiceWorker } from './ServiceWorkerSetup';
 import './UI/icomoon-font.css'; // Styles for Icomoon font.
 import optionalRequire from './Utils/OptionalRequire';
+import { isTauri } from './Utils/Tauri/isTauri';
 import { loadScript } from './Utils/LoadScript';
 import { showErrorBox } from './UI/Messages/MessageBox';
 import VersionMetadata from './Version/VersionMetadata';
@@ -109,6 +110,15 @@ class Bootstrapper extends Component<{}, State> {
               })
             )
             .catch(this.handleEditorLoadError);
+        } else if (isTauri()) {
+          import(/* webpackChunkName: "tauri-app" */ './TauriApp')
+            .then(module =>
+              this.setState({
+                App: module.create(this.authentication),
+                loadingMessage: '',
+              })
+            )
+            .catch(this.handleEditorLoadError);
         } else {
           import(/* webpackChunkName: "browser-app" */ './BrowserApp')
             .then(module =>
@@ -160,4 +170,4 @@ if (rootElement) {
   createRoot(rootElement).render(<Bootstrapper />);
 } else console.error('No root element defined in index.html');
 
-registerServiceWorker();
+if (!isTauri()) registerServiceWorker();

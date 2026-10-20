@@ -105,7 +105,11 @@ export type FileStat = {|
   mtimeMs: number,
 |};
 
-export type DirEntry = {| name: string, isFile: boolean, isDirectory: boolean |};
+export type DirEntry = {|
+  name: string,
+  isFile: boolean,
+  isDirectory: boolean,
+|};
 
 /** Produced by TauriExportFileSystem (B4) or TauriResourceMover (B3); consumed by flush_export (B2). */
 export type ExportManifest = {|
@@ -125,7 +129,11 @@ export type FlushExportResult = {|
   copied: number,
   downloaded: number,
   /** Per-file failures do NOT reject (a missing resource must not kill a preview). */
-  failures: Array<{| dest: string, code: TauriBridgeErrorCode, message: string |}>,
+  failures: Array<{|
+    dest: string,
+    code: TauriBridgeErrorCode,
+    message: string,
+  |}>,
 |};
 
 export type PreviewServer = {|
@@ -193,7 +201,10 @@ export type TauriBridgeInterface = {|
   /** Grant fs + asset-protocol access to a project folder, recursively. Call on EVERY project open/save-as. */
   allowProjectDirectory(directoryPath: string): Promise<void>,
   /** URL a webview can load for a project resource (absolute or relative to the project file's dir). */
-  getResourceUrl(projectFilePath: string, resourcePath: string): Promise<string>,
+  getResourceUrl(
+    projectFilePath: string,
+    resourcePath: string
+  ): Promise<string>,
   /** SYNC EXCEPTION — same result as getResourceUrl; only for ResourcesLoader.getFullUrl (see §5). */
   getResourceUrlSync(projectFilePath: string, resourcePath: string): string,
 
@@ -207,7 +218,9 @@ export type TauriBridgeInterface = {|
   /** Stop the server if running; no-op otherwise. */
   stopPreviewServer(): Promise<void>,
   /** Open a top-level preview window on a preview-server URL; window has no IPC capabilities. */
-  openPreviewWindow(options: PreviewWindowOptions): Promise<PreviewWindowHandle>,
+  openPreviewWindow(
+    options: PreviewWindowOptions
+  ): Promise<PreviewWindowHandle>,
   /** Close one preview window; resolves if already closed. */
   closePreviewWindow(label: string): Promise<void>,
   /** Close every preview window (editor close, new preview with "replace" semantics). */
@@ -273,21 +286,49 @@ const inferErrorCode = (message: string): TauriBridgeErrorCode => {
   )
     return 'PORT_UNAVAILABLE';
   if (lowerCaseMessage.includes('window')) return 'WINDOW';
-  if (
-    lowerCaseMessage.includes('io error') ||
-    lowerCaseMessage.includes('i/o')
-  )
+  if (lowerCaseMessage.includes('io error') || lowerCaseMessage.includes('i/o'))
     return 'IO';
   return 'UNKNOWN';
+};
+
+const KNOWN_ERROR_CODES: Array<TauriBridgeErrorCode> = [
+  'NOT_FOUND',
+  'PERMISSION_DENIED',
+  'OUT_OF_SCOPE',
+  'ALREADY_EXISTS',
+  'IO',
+  'PORT_UNAVAILABLE',
+  'WINDOW',
+  'UNKNOWN',
+];
+
+// The custom Rust commands (B2, error.rs) reject with a structured
+// `{ code, message, path }` object whose `code` is already a contract
+// error code: trust it rather than re-inferring one from the message.
+const structuredErrorCodeOf = (cause: mixed): ?TauriBridgeErrorCode => {
+  if (!cause || typeof cause !== 'object') return null;
+  // $FlowFixMe[incompatible-use]
+  const code = cause.code;
+  return KNOWN_ERROR_CODES.find(knownCode => knownCode === code) || null;
+};
+
+const structuredErrorPathOf = (cause: mixed): ?string => {
+  if (!cause || typeof cause !== 'object') return null;
+  // $FlowFixMe[incompatible-use]
+  return typeof cause.path === 'string' ? cause.path : null;
 };
 
 const toBridgeError = (cause: mixed, path?: ?string): TauriBridgeError => {
   if (cause instanceof TauriBridgeError) return cause;
   const message = errorMessageOf(cause);
-  return new TauriBridgeError(inferErrorCode(message), message, {
-    path,
-    cause,
-  });
+  return new TauriBridgeError(
+    structuredErrorCodeOf(cause) || inferErrorCode(message),
+    message,
+    {
+      path: structuredErrorPathOf(cause) || path,
+      cause,
+    }
+  );
 };
 
 // --- 3. Pure path helpers for getResourceUrl/getResourceUrlSync ------------
@@ -532,15 +573,10 @@ const TauriBridge: TauriBridgeInterface = {
   // window.__TAURI_INTERNALS__, and the path resolution above never calls IPC,
   // so this can stay synchronous without any extra cost. Must return the same
   // result as getResourceUrl for the same inputs (checked by B6).
-  getResourceUrlSync: (
-    projectFilePath: string,
-    resourcePath: string
-  ): string =>
+  getResourceUrlSync: (projectFilePath: string, resourcePath: string): string =>
     convertFileSrc(resolveResourceAbsolutePath(projectFilePath, resourcePath)),
 
-  flushExport: async (
-    manifest: ExportManifest
-  ): Promise<FlushExportResult> => {
+  flushExport: async (manifest: ExportManifest): Promise<FlushExportResult> => {
     try {
       return await invoke('flush_export', { manifest });
     } catch (cause) {

@@ -1,0 +1,325 @@
+# Advisory CI for the Tauri MVP (see docs/tauri/ADR-001.md, section 4).
+#
+# - Builds the GDevelop web frontend (newIDE/app) on Windows and Linux and
+#   records the bundle sizes for comparison.
+# - Builds the Tauri app (newIDE/tauri-app) into an NSIS installer on Windows,
+#   uploads it with its byte size, and holds the smoke-test placeholders for the
+#   WebView2-specific checks listed in ADR-001 section 4 (items 1-9).
+#
+# This workflow is advisory. It must NOT be added to the required status checks
+# of branch protection until Wave 2 has real assertions behind the smoke test.
+#
+# The smoke-test step asserts nothing yet. It reports every item as NOT VERIFIED
+# in the job summary and never passes an item by default. See the TODO(wave2)
+# comments on that step.
+
+name: Tauri MVP (Windows)
+
+on:
+  pull_request:
+    paths:
+      - "newIDE/tauri-app/**"
+      - "newIDE/app/**"
+  # Manual runs, from the Actions tab.
+  workflow_dispatch:
+
+concurrency:
+  group: tauri-mvp-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Backstop for the single-import-point rule (TauriBridge contract v1 section 6;
+  # the per-directory .eslintrc.json files are the primary enforcement). Only
+  # src/Utils/Tauri/TauriBridge.js may import @tauri-apps/* or call
+  # optionalRequire(...). Covers TauriApp.js, the Tauri* storage/exporter/Utils
+  # directories, and the Tauri code writer, fetcher and mover that live in shared
+  # directories. Matches import/require syntax on code lines only (lines with a
+  # `/` or `*` before the match, i.e. comments, are skipped), so documentation
+  # that mentions the rule does not trip it. Specs and __mocks__ are excluded:
+  # they may mock the SDK, and ESLint still checks their imports.
+  tauri-bridge-import-backstop:
+    name: Tauri single-import-point backstop
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Only TauriBridge.js may import @tauri-apps/* or call optionalRequire
+        working-directory: newIDE/app
+        run: |
+          set +e
+          git grep -n -E "^[^/*]*((from|import\(|require\()[[:space:]]*['\"]@tauri-apps/|optionalRequire\()" -- \
+            src/TauriApp.js \
+            'src/ProjectsStorage/Tauri*' \
+            src/ExportAndShare/TauriExporters \
+            src/Utils/Tauri \
+            'src/ProjectsStorage/ResourceFetcher/Tauri*' \
+            'src/ProjectsStorage/ResourceMover/Tauri*' \
+            'src/EventsFunctionsExtensionsLoader/CodeWriters/Tauri*' \
+            ':!src/Utils/Tauri/TauriBridge.js' \
+            ':!*.spec.js' \
+            ':!**/__mocks__/**'
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error title=Tauri single-import-point::The lines above import @tauri-apps/* or call optionalRequire outside TauriBridge.js. Go through TauriBridge instead (contract section 6)."
+            exit 1
+          elif [ "$status" -ne 1 ]; then
+            echo "git grep failed with status $status"
+            exit "$status"
+          fi
+          echo "OK: no @tauri-apps/* import or optionalRequire call outside TauriBridge.js."
+
+  windows-nsis:
+    name: Windows NSIS build and smoke test
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 16 is what the newIDE builds use in this repository (see
+      # .travis.yml and build-storybook.yml).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+          cache: npm
+          cache-dependency-path: |
+            newIDE/app/package-lock.json
+            GDJS/package-lock.json
+
+      - name: Install newIDE dependencies
+        # The postinstall hook also installs GDJS and runs import-resources.
+        run: npm install
+        working-directory: newIDE/app
+
+      - name: Import resources
+        # Redundant with the postinstall hook and with the `build` script, which
+        # both run import-resources. Kept explicit as requested. Remove it if the
+        # duplicate download time becomes a problem.
+        run: npm run import-resources
+        working-directory: newIDE/app
+
+      - name: Build web frontend
+        run: npm run build
+        working-directory: newIDE/app
+
+      - name: Record web bundle size (Windows runner)
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE/artifacts" | Out-Null
+          $bytes = (Get-ChildItem -Path build -Recurse -File | Measure-Object -Property Length -Sum).Sum
+          "$bytes" | Out-File -Encoding ascii -FilePath "$env:GITHUB_WORKSPACE/artifacts/web-bundle-size-windows.txt"
+          Write-Output "Web bundle (Windows runner): $bytes bytes"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Web bundle (Windows runner): $bytes bytes"
+        working-directory: newIDE/app
+
+      # The Tauri steps need the scaffold from B1/B2 (newIDE/tauri-app). Fail
+      # clearly rather than skipping, so a green run always means the app was built.
+      - name: Check Tauri project exists
+        run: |
+          if (-not (Test-Path "src-tauri/tauri.conf.json")) {
+            Write-Error "newIDE/tauri-app/src-tauri/tauri.conf.json not found. This job needs the Tauri scaffold (B1/B2)."
+            exit 1
+          }
+        working-directory: newIDE/tauri-app
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        # TODO(wave2): pin `toolchain:` to the version in newIDE/tauri-app's
+        # rust-toolchain file or rust-version field once one exists.
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: newIDE/tauri-app/src-tauri
+
+      - name: Install Tauri CLI
+        # TODO(wave2): once newIDE/tauri-app/package.json exists, replace this
+        # global install with its pinned @tauri-apps/cli devDependency
+        # (`npm ci` then `npx tauri build`), so the CLI matches the Tauri crate
+        # versions in Cargo.lock. Major version 2 is required.
+        run: npm install -g @tauri-apps/cli@2
+
+      - name: Build Tauri app (NSIS installer)
+        # TODO(wave2): check that tauri.conf.json does not run its own
+        # beforeBuildCommand that rebuilds newIDE/app. This job already built it.
+        run: tauri build --bundles nsis
+        working-directory: newIDE/tauri-app
+
+      - name: Record installer size and collect artifacts
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE/artifacts" | Out-Null
+          $nsisDir = "src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem -Path $nsisDir -Filter "*.exe" -ErrorAction Stop | Select-Object -First 1
+          if (-not $installer) { throw "No NSIS .exe found in $nsisDir" }
+          Copy-Item -Path $installer.FullName -Destination "$env:GITHUB_WORKSPACE/artifacts/"
+          "$($installer.Length)" | Out-File -Encoding ascii -FilePath "$env:GITHUB_WORKSPACE/artifacts/nsis-installer-size.txt"
+          Write-Output "NSIS installer $($installer.Name): $($installer.Length) bytes"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "NSIS installer $($installer.Name): $($installer.Length) bytes"
+        working-directory: newIDE/tauri-app
+
+      # Smoke test. Every item below is a placeholder. Nothing here asserts
+      # anything yet. Each item stays NOT VERIFIED until a Wave-2 change
+      # replaces its TODO with a real check.
+      #
+      # Shared setup for the checks: tauri-driver (WebDriver for Tauri apps) on
+      # Windows drives WebView2 through msedgedriver (see item 9). The app under
+      # test is the installed NSIS build or the target/release binary. The Electron
+      # build is the comparison baseline for items 8 and 9.
+      #
+      # TODO(wave2) item 1, service worker (ADR section 4.1, section 1 item 7):
+      #   After the editor has booted, run
+      #   `navigator.serviceWorker.getRegistrations()` in the page and assert
+      #   the result is an empty array. Also assert there is no service worker
+      #   error in the console log. Fail if a registration is found. Also check
+      #   that the B1 cleanup did unregister any previously registered workers.
+      #   Use a fresh WebView2 user-data directory per run so an old registration
+      #   cannot hide the failure. Why: WebView2 is Chromium and may allow the
+      #   registration that WebKitGTK refused, so this must be tested on Windows
+      #   and not assumed.
+      #
+      # TODO(wave2) item 2, preview path (ADR section 4.2, section 1 item 5):
+      #   Open a project and trigger a preview (the Tauri command
+      #   preview_window_open or the Preview button). Assert that a second window
+      #   opens with a URL starting with `http://127.0.0.1:`. Assert that the game
+      #   canvas appears in that window. Assert that no request goes to
+      #   `/browser_sw_preview/`, using the preview server access log or
+      #   `performance.getEntriesByType('resource')` in the preview window.
+      #
+      # TODO(wave2) item 3, asset protocol (ADR section 4.3, section 2 item 4):
+      #   Call convertFileSrc on a local image. Expect a URL of the form
+      #   `http://asset.localhost/C%3A%5C...`. Assert that an <img> with that URL
+      #   reaches naturalWidth > 0. Assert that a Pixi texture loads with
+      #   crossOrigin=anonymous, which needs CORS headers on the asset response.
+      #   Assert that the `?cache=` burst parameter is accepted. Repeat with
+      #   fixtures whose paths contain spaces, non-ASCII characters and a path
+      #   longer than 260 characters.
+      #
+      # TODO(wave2) item 4, origin acceptance (ADR section 4.4): the app runs at
+      #   `https://tauri.localhost`. From that origin, assert that these calls
+      #   succeed (no CORS or referrer rejection):
+      #   (a) api.gdevelop.io (CORS preflight and a simple GET);
+      #   (b) resources.gdevelop-app.com (the GDJS runtime fetch used by preview);
+      #   (c) Firebase Auth (the API key referrer restriction and the authorized
+      #       domains list, which must include tauri.localhost).
+      #   Do NOT work around a failure with Rust-side HTTP here. That would be a
+      #   contract v2 change, which is a maintainer decision. Report the failure
+      #   and stop.
+      #
+      # TODO(wave2) item 5, window.open popups (ADR section 4.5): trigger the login
+      #   portal (BrowserLoginProvider) and an external editor link. Assert that
+      #   window.open returns a non-null window, or that a new WebviewWindow
+      #   opens. Check both behaviours on WebView2.
+      #
+      # TODO(wave2) item 6, Monaco workers (ADR section 4.6, S2 Medium): open the
+      #   event code editor, then pop it out into a separate window. Assert that
+      #   the Monaco editor.worker loads with no worker errors in the console.
+      #
+      # TODO(wave2) item 7, WebGL on the runner (ADR section 4.7):
+      #   windows-latest has no GPU, so WebView2 may use the WARP/SwiftShader
+      #   fallback. Open a scene in the preview. Assert that the canvas returns a
+      #   non-null WebGL context and that a read-back of the rendered frame is not
+      #   blank. FPS is out of scope. Record which renderer string WebView2
+      #   reports, so the fallback is visible in the logs.
+      #
+      # TODO(wave2) item 8, measurements (ADR section 4.8, section 1 item 6):
+      #   (a) NSIS installer size: DONE in the step above (artifacts/nsis-installer-size.txt).
+      #   (b) Idle RAM after boot: wait a fixed time after the editor is idle, then
+      #       sum the working set of the msedgewebview2.exe processes that belong to
+      #       the app (Get-Process), and record the total.
+      #   (c) Cold start: time from process launch to first frame, for the Tauri
+      #       build and for the Electron build on the same runner. Requires an
+      #       Electron build job, which does not exist yet. Record both numbers
+      #       side by side.
+      #   Record all measurements as step summary lines and artifacts. Do not turn
+      #   these into pass/fail thresholds until a baseline exists.
+      #
+      # TODO(wave2) item 9, tauri-driver and msedgedriver pinning (ADR section 4.9):
+      #   tauri-driver on Windows needs an msedgedriver that matches the WebView2
+      #   runtime version installed on the runner. Read that version from the
+      #   registry key for the WebView2 runtime (EdgeUpdate Clients, GUID
+      #   {F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}, `pv` value; verify this GUID
+      #   before relying on it). Then either fetch the matching msedgedriver
+      #   dynamically or pin it with a version env var in this workflow. Fail the
+      #   step if the driver major version differs from the runtime major version.
+      #   Install tauri-driver with `cargo install tauri-driver --locked`, using
+      #   the same Rust cache as the build.
+      - name: Smoke test (placeholder, NOT VERIFIED)
+        run: |
+          $items = @(
+            "1. Service worker: NOT VERIFIED (placeholder, see TODO(wave2) item 1)",
+            "2. Preview path (127.0.0.1 window, no /browser_sw_preview/): NOT VERIFIED (placeholder, see TODO(wave2) item 2)",
+            "3. Asset protocol (convertFileSrc, Pixi CORS, cache burst, paths): NOT VERIFIED (placeholder, see TODO(wave2) item 3)",
+            "4. Origin acceptance (api.gdevelop.io, resources.gdevelop-app.com, Firebase Auth): NOT VERIFIED (placeholder, see TODO(wave2) item 4)",
+            "5. window.open popups (login portal, external editors): NOT VERIFIED (placeholder, see TODO(wave2) item 5)",
+            "6. Monaco workers (code editor, pop-out): NOT VERIFIED (placeholder, see TODO(wave2) item 6)",
+            "7. WebGL / GPU fallback (scene renders): NOT VERIFIED (placeholder, see TODO(wave2) item 7)",
+            "8. Measurements (installer size: recorded; idle RAM and cold start vs Electron: NOT MEASURED): see TODO(wave2) item 8",
+            "9. tauri-driver and msedgedriver pinning: NOT VERIFIED (placeholder, see TODO(wave2) item 9)"
+          )
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Tauri MVP smoke test (ADR-001 section 4)"
+          foreach ($line in $items) {
+            Write-Output $line
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- $line"
+          }
+          Write-Host "::warning title=Tauri smoke test::No smoke-test assertions are implemented yet. All checks are placeholders."
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-mvp-windows-nsis-${{ github.sha }}
+          path: |
+            artifacts/*.exe
+            artifacts/nsis-installer-size.txt
+            artifacts/web-bundle-size-windows.txt
+          retention-days: 30
+          if-no-files-found: error
+
+  web-bundle-linux:
+    name: Linux web bundle size
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+          cache: npm
+          cache-dependency-path: |
+            newIDE/app/package-lock.json
+            GDJS/package-lock.json
+
+      - name: Install newIDE dependencies
+        run: npm install
+        working-directory: newIDE/app
+
+      - name: Import resources
+        # Same as the Windows job: redundant with postinstall and build, kept explicit.
+        run: npm run import-resources
+        working-directory: newIDE/app
+
+      - name: Build web frontend
+        run: npm run build
+        working-directory: newIDE/app
+
+      - name: Record web bundle size (Linux runner)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          bytes=$(find build -type f -printf '%s\n' | awk '{s+=$1} END {print s+0}')
+          echo "$bytes" > "$GITHUB_WORKSPACE/artifacts/web-bundle-size-linux.txt"
+          echo "Web bundle (Linux runner): $bytes bytes"
+          echo "Web bundle (Linux runner): $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
+        working-directory: newIDE/app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-mvp-linux-web-bundle-size-${{ github.sha }}
+          path: artifacts/web-bundle-size-linux.txt
+          retention-days: 30
+          if-no-files-found: error

@@ -34,23 +34,95 @@ import {
 } from '@tauri-apps/api/path';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { attachConsole } from '@tauri-apps/plugin-log';
+import {
+  error as pluginLogError,
+  warn as pluginLogWarn,
+  info as pluginLogInfo,
+  debug as pluginLogDebug,
+} from '@tauri-apps/plugin-log';
 
-// MVP diagnostics: forwards every `console.*` call (libGD.js init messages,
-// uncaught errors, resource/SW failures...) into the Rust-side log sink
-// (see tauri-app/src-tauri/src/main.rs's tauri_plugin_log registration), so
-// a tester's log file is a complete record without needing devtools open.
+// MVP diagnostics: forwards `console.*` calls (libGD.js init messages,
+// resource/SW failures...), plus uncaught errors and unhandled promise
+// rejections, into the Rust-side log sink (see tauri-app/src-tauri/src/
+// main.rs's tauri_plugin_log registration), so a tester's log file is a
+// complete record without needing devtools open.
+//
+// NOTE, corrected after the first real Windows run (2026-10-20): this
+// package's `attachConsole()`/`attachLogger()` do the OPPOSITE of what the
+// name suggests - they forward Rust-side logs INTO the webview console (for
+// when devtools is open), not the webview's console out to Rust. The actual
+// JS-to-Rust direction is the plain `error`/`warn`/`info`/`debug` functions
+// imported above, each a thin `invoke('plugin:log|log', ...)`. The first
+// build shipped with the former, which produced an almost-empty log file
+// (just tao/wry's own internal debug lines) - this monkey-patch is the fix.
+//
 // `init()` is awaited exactly once by TauriApp.js before first render, which
 // makes it the natural, single place to start this - not a reason to treat
 // it as part of the frozen contract's public surface (it isn't listed in
 // TauriBridgeInterface and callers must not rely on its return value).
 let consoleAttached = false;
+const toLogMessage = (args: Array<mixed>): string =>
+  args
+    .map(arg => {
+      if (typeof arg === 'string') return arg;
+      try {
+        return JSON.stringify(arg);
+      } catch (e) {
+        return String(arg);
+      }
+    })
+    .join(' ');
+
 const attachConsoleOnce = (): void => {
   if (consoleAttached) return;
   consoleAttached = true;
-  attachConsole().catch(() => {
-    consoleAttached = false;
+
+  if (typeof window === 'undefined' || typeof console === 'undefined') return;
+
+  const original = {
+    log: console.log,
+    debug: console.debug,
+    info: console.info,
+    warn: console.warn,
+    error: console.error,
+  };
+  console.log = (...args) => {
+    original.log(...args);
+    pluginLogDebug(toLogMessage(args)).catch(() => {});
+  };
+  console.debug = (...args) => {
+    original.debug(...args);
+    pluginLogDebug(toLogMessage(args)).catch(() => {});
+  };
+  console.info = (...args) => {
+    original.info(...args);
+    pluginLogInfo(toLogMessage(args)).catch(() => {});
+  };
+  console.warn = (...args) => {
+    original.warn(...args);
+    pluginLogWarn(toLogMessage(args)).catch(() => {});
+  };
+  console.error = (...args) => {
+    original.error(...args);
+    pluginLogError(toLogMessage(args)).catch(() => {});
+  };
+
+  window.addEventListener('error', event => {
+    pluginLogError(
+      `Uncaught error: ${event.message} (${event.filename}:${event.lineno}:${
+        event.colno
+      })`
+    ).catch(() => {});
   });
+  window.addEventListener('unhandledrejection', event => {
+    pluginLogError(`Unhandled promise rejection: ${String(event.reason)}`).catch(
+      () => {}
+    );
+  });
+
+  pluginLogInfo('[TauriBridge] console + error forwarding attached').catch(
+    () => {}
+  );
 };
 
 // --- 1. Types (contract v1, section 1) -------------------------------------

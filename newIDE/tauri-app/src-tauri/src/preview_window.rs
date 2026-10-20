@@ -79,6 +79,8 @@ pub fn preview_window_open<R: Runtime>(
         }
     });
 
+    log::info!("preview_window: opened {label} at {}", options.url);
+
     Ok(PreviewWindowHandle { label })
 }
 

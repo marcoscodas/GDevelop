@@ -195,21 +195,30 @@ fn handle_connection(mut stream: TcpStream, canonical_root: &Path) -> std::io::R
         Some(resolved) => match fs::read(&resolved) {
             Ok(body) => {
                 let content_type = mime_type_for(&resolved);
+                log::trace!("preview_server: 200 {method} {decoded} ({} bytes)", body.len());
                 if method == "HEAD" {
                     write_status_and_headers(&mut stream, 200, "OK", content_type, body.len())
                 } else {
                     write_response(&mut stream, 200, "OK", content_type, &body)
                 }
             }
-            Err(_) => write_response(
-                &mut stream,
-                500,
-                "Internal Server Error",
-                "text/plain; charset=utf-8",
-                b"Internal Server Error",
-            ),
+            Err(e) => {
+                log::warn!("preview_server: 500 {method} {decoded} (read failed: {e})");
+                write_response(
+                    &mut stream,
+                    500,
+                    "Internal Server Error",
+                    "text/plain; charset=utf-8",
+                    b"Internal Server Error",
+                )
+            }
         },
-        None => write_response(&mut stream, 404, "Not Found", "text/plain; charset=utf-8", b"Not Found"),
+        // The single most useful log line for diagnosing a broken preview:
+        // every missing asset the preview page actually requested, by path.
+        None => {
+            log::warn!("preview_server: 404 {method} {decoded}");
+            write_response(&mut stream, 404, "Not Found", "text/plain; charset=utf-8", b"Not Found")
+        }
     }
 }
 
@@ -280,6 +289,11 @@ pub fn preview_server_start(
         accept_thread,
         port,
     });
+
+    log::info!(
+        "preview_server: started on http://127.0.0.1:{port}, root={}",
+        canonical_root.display()
+    );
 
     Ok(PreviewServer {
         origin: format!("http://127.0.0.1:{port}"),

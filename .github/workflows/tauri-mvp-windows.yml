@@ -106,8 +106,16 @@ jobs:
         working-directory: newIDE/app
 
       - name: Build web frontend
+        # The production webpack build OOMs on the runner's default ~4GB V8
+        # heap (GDevelop's bundle is large: Monaco, PixiJS, Material-UI...).
+        # Raise the heap limit (runner has 7GB) and skip source maps, which
+        # are the single biggest memory cost here and aren't needed for a
+        # smoke-test build.
         run: npm run build
         working-directory: newIDE/app
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          GENERATE_SOURCEMAP: false
 
       - name: Record web bundle size (Windows runner)
         run: |
@@ -305,8 +313,12 @@ jobs:
         working-directory: newIDE/app
 
       - name: Build web frontend
+        # Same OOM fix as the Windows job: see its comment for why.
         run: npm run build
         working-directory: newIDE/app
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          GENERATE_SOURCEMAP: false
 
       - name: Record web bundle size (Linux runner)
         run: |

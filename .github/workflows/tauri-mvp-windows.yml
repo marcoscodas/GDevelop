@@ -31,6 +31,48 @@ permissions:
   contents: read
 
 jobs:
+  # Backstop for the single-import-point rule (TauriBridge contract v1 section 6;
+  # the per-directory .eslintrc.json files are the primary enforcement). Only
+  # src/Utils/Tauri/TauriBridge.js may import @tauri-apps/* or call
+  # optionalRequire(...). Covers TauriApp.js, the Tauri* storage/exporter/Utils
+  # directories, and the Tauri code writer, fetcher and mover that live in shared
+  # directories. Matches import/require syntax on code lines only (lines with a
+  # `/` or `*` before the match, i.e. comments, are skipped), so documentation
+  # that mentions the rule does not trip it. Specs and __mocks__ are excluded:
+  # they may mock the SDK, and ESLint still checks their imports.
+  tauri-bridge-import-backstop:
+    name: Tauri single-import-point backstop
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Only TauriBridge.js may import @tauri-apps/* or call optionalRequire
+        working-directory: newIDE/app
+        run: |
+          set +e
+          git grep -n -E "^[^/*]*((from|import\(|require\()[[:space:]]*['\"]@tauri-apps/|optionalRequire\()" -- \
+            src/TauriApp.js \
+            'src/ProjectsStorage/Tauri*' \
+            src/ExportAndShare/TauriExporters \
+            src/Utils/Tauri \
+            'src/ProjectsStorage/ResourceFetcher/Tauri*' \
+            'src/ProjectsStorage/ResourceMover/Tauri*' \
+            'src/EventsFunctionsExtensionsLoader/CodeWriters/Tauri*' \
+            ':!src/Utils/Tauri/TauriBridge.js' \
+            ':!*.spec.js' \
+            ':!**/__mocks__/**'
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error title=Tauri single-import-point::The lines above import @tauri-apps/* or call optionalRequire outside TauriBridge.js. Go through TauriBridge instead (contract section 6)."
+            exit 1
+          elif [ "$status" -ne 1 ]; then
+            echo "git grep failed with status $status"
+            exit "$status"
+          fi
+          echo "OK: no @tauri-apps/* import or optionalRequire call outside TauriBridge.js."
+
   windows-nsis:
     name: Windows NSIS build and smoke test
     runs-on: windows-latest

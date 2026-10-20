@@ -56,15 +56,6 @@ const styles = {
   },
 };
 
-// Module-level cache of the resolved bridge environment. TauriBridge.init()
-// is awaited once by TauriAppBootstrapper below, before anything Tauri-native
-// renders; this lets any later, synchronous code in this file read it back
-// without a second IPC round-trip. (ADR-001 does not require this to be
-// exposed outside TauriApp.js for Wave 1; Tauri*/EventsFunctionCodeWriter
-// modules created by other builders call TauriBridge.init() themselves,
-// which the contract documents as idempotent.)
-let tauriBridgeEnv: ?TauriBridgeEnv = null;
-
 /**
  * Defensively unregister any Service Worker registration that may already
  * exist (ADR-001 §1 item 7 / §4.1). Tauri must never end up running with a
@@ -108,7 +99,11 @@ const TauriAppContent = ({ authentication, env }: ContentProps): React.Node => {
     <Providers
       authentication={authentication}
       disableCheckForUpdates={!!appArguments['disable-update-check']}
-      makeEventsFunctionCodeWriter={makeTauriEventsFunctionCodeWriter}
+      // makeTauriEventsFunctionCodeWriter (B4) takes the resolved bridge env
+      // alongside the callbacks, so it can build include paths synchronously.
+      makeEventsFunctionCodeWriter={callbacks =>
+        makeTauriEventsFunctionCodeWriter({ ...callbacks, env })
+      }
       // $FlowFixMe[incompatible-type]
       // $FlowFixMe[incompatible-exact]
       eventsFunctionsExtensionWriter={BrowserEventsFunctionsExtensionWriter}
@@ -206,10 +201,7 @@ class TauriAppBootstrapper extends React.Component<
     unregisterAnyExistingServiceWorkers();
 
     TauriBridge.init()
-      .then(env => {
-        tauriBridgeEnv = env;
-        this.setState({ env });
-      })
+      .then(env => this.setState({ env }))
       .catch(error => this.setState({ error }));
   }
 

@@ -1,6 +1,52 @@
 // @flow
 import Window from '../Utils/Window';
 import { getIDEVersionWithHash } from '../Version';
+import TauriBridge from '../Utils/Tauri/TauriBridge';
+import { isTauri } from '../Utils/Tauri/isTauri';
+
+const base64ToText = (base64: string): string => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
+};
+
+/**
+ * `fetch(url).then(response => response.text())`, but routed through Rust
+ * under Tauri (TauriBridge-contract.md section 7): the webview would
+ * otherwise block reading this response, since `resources.gdevelop-app.com`
+ * almost certainly doesn't have this app's origin CORS-allowlisted. Safe to
+ * route this specific fetch through Rust because these are plain public
+ * runtime files with no cookie/credentials dependency - unlike, say,
+ * Utils/BlobDownloader.js's `credentials: 'include'` fetches, which rely on
+ * a browser-managed cookie a Rust HTTP client has no access to at all and
+ * must NOT be blindly proxied the same way.
+ */
+const fetchText = (url: string): Promise<string> => {
+  if (!isTauri()) {
+    return fetch(url).then(response => {
+      if (!response.ok) {
+        console.error(`Error while downloading "${url}"`, response);
+        throw new Error(
+          `Error while downloading "${url}" (status: ${response.status})`
+        );
+      }
+      return response.text();
+    });
+  }
+
+  return TauriBridge.httpFetch({ method: 'GET', url, headers: {} }).then(
+    result => {
+      if (result.status < 200 || result.status >= 300) {
+        console.error(`Error while downloading "${url}"`, result);
+        throw new Error(
+          `Error while downloading "${url}" (status: ${result.status})`
+        );
+      }
+      return base64ToText(result.bodyBase64);
+    }
+  );
+};
 
 type FileSet =
   | 'preview'
@@ -66,19 +112,12 @@ export const findGDJS = (
     filesToDownload[fileSet].map(relativeFilePath => {
       const url = gdjsRoot + relativeFilePath;
 
-      // Don't do any caching, rely on the browser cache only.
-      return fetch(url).then(response => {
-        if (!response.ok) {
-          console.error(`Error while downloading "${url}"`, response);
-          throw new Error(
-            `Error while downloading "${url}" (status: ${response.status})`
-          );
-        }
-        return response.text().then(text => ({
-          filePath: url,
-          text,
-        }));
-      });
+      // Don't do any caching, rely on the browser cache only (outside Tauri;
+      // the Tauri path has no browser cache to rely on regardless).
+      return fetchText(url).then(text => ({
+        filePath: url,
+        text,
+      }));
     })
   ).then(filesContent => {
     return {

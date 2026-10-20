@@ -14,9 +14,14 @@ tauri-build = { version = "2.7.3", features = [] }
 [dependencies]
 # `protocol-asset` is required for `app.asset_protocol_scope()` (scope.rs) and for
 # the JS-side `convertFileSrc` used by TauriBridge.getResourceUrl(Sync).
-tauri = { version = "2.12.4", features = ["protocol-asset"] }
+tauri = { version = "2.12.4", features = ["protocol-asset", "devtools"] }
 tauri-plugin-dialog = "2.8.3"
 tauri-plugin-fs = "2.7.1"
+# Verbose diagnostics for the MVP build: writes Rust + forwarded webview
+# console output to a log file (and stdout in debug builds) so a tester can
+# report "what actually happened" without attaching a debugger.
+tauri-plugin-log = "2"
+log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Async HTTP client for flush_export's filesToDownload. rustls-tls avoids a

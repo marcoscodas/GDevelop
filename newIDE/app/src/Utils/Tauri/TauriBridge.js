@@ -34,6 +34,24 @@ import {
 } from '@tauri-apps/api/path';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { attachConsole } from '@tauri-apps/plugin-log';
+
+// MVP diagnostics: forwards every `console.*` call (libGD.js init messages,
+// uncaught errors, resource/SW failures...) into the Rust-side log sink
+// (see tauri-app/src-tauri/src/main.rs's tauri_plugin_log registration), so
+// a tester's log file is a complete record without needing devtools open.
+// `init()` is awaited exactly once by TauriApp.js before first render, which
+// makes it the natural, single place to start this - not a reason to treat
+// it as part of the frozen contract's public surface (it isn't listed in
+// TauriBridgeInterface and callers must not rely on its return value).
+let consoleAttached = false;
+const attachConsoleOnce = (): void => {
+  if (consoleAttached) return;
+  consoleAttached = true;
+  attachConsole().catch(() => {
+    consoleAttached = false;
+  });
+};
 
 // --- 1. Types (contract v1, section 1) -------------------------------------
 
@@ -368,6 +386,7 @@ const resolveResourceAbsolutePath = (
 
 const TauriBridge: TauriBridgeInterface = {
   init: async (): Promise<TauriBridgeEnv> => {
+    attachConsoleOnce();
     try {
       return await invoke('app_env');
     } catch (cause) {

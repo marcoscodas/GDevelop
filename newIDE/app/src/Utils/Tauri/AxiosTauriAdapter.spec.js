@@ -16,6 +16,7 @@ const BlobCtor = typeof Blob !== 'undefined' ? Blob : require('buffer').Blob;
 const client = axios.create({ adapter: tauriAxiosAdapter });
 
 const toBase64 = (text: string) =>
+  // $FlowFixMe[cannot-resolve-name] - Node's Buffer, available in Jest.
   Buffer.from(text, 'utf-8').toString('base64');
 
 describe('AxiosTauriAdapter', () => {
@@ -28,12 +29,14 @@ describe('AxiosTauriAdapter', () => {
       bodyBase64: toBase64('{"ok":true}'),
     });
 
+    // $FlowFixMe[underconstrained-implicit-instantiation]
     const response = await client.get('https://api.gdevelop.io/game', {
       params: { userId: 'abc', page: 2 },
       headers: { Authorization: 'Bearer token-123' },
     });
 
     expect(TauriBridge.httpFetch).toHaveBeenCalledTimes(1);
+    // $FlowFixMe[prop-missing] - jest.fn() mock.
     const request = TauriBridge.httpFetch.mock.calls[0][0];
     expect(request.method).toBe('get');
     expect(request.url).toBe(
@@ -55,11 +58,14 @@ describe('AxiosTauriAdapter', () => {
       bodyBase64: toBase64('{}'),
     });
 
+    // $FlowFixMe[underconstrained-implicit-instantiation]
     await client.post('https://api.gdevelop.io/game', { name: 'My game' });
 
+    // $FlowFixMe[prop-missing] - jest.fn() mock.
     const request = TauriBridge.httpFetch.mock.calls[0][0];
     expect(request.bodyBase64).toBeDefined();
     expect(
+      // $FlowFixMe[cannot-resolve-name] - Node's Buffer, available in Jest.
       Buffer.from(request.bodyBase64, 'base64').toString('utf-8')
     ).toBe('{"name":"My game"}');
   });
@@ -92,6 +98,7 @@ describe('AxiosTauriAdapter', () => {
       bodyBase64: toBase64('fake-png-bytes'),
     });
 
+    // $FlowFixMe[underconstrained-implicit-instantiation]
     const response = await client.get('https://project-resources.gdevelop.io/x.png', {
       responseType: 'blob',
     });

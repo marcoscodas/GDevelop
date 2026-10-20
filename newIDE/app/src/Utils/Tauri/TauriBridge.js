@@ -86,22 +86,27 @@ const attachConsoleOnce = (): void => {
     warn: console.warn,
     error: console.error,
   };
+  // $FlowFixMe[cannot-write] - Flow's Console lib type marks these read-only; a deliberate monkey-patch.
   console.log = (...args) => {
     original.log(...args);
     pluginLogDebug(toLogMessage(args)).catch(() => {});
   };
+  // $FlowFixMe[cannot-write]
   console.debug = (...args) => {
     original.debug(...args);
     pluginLogDebug(toLogMessage(args)).catch(() => {});
   };
+  // $FlowFixMe[cannot-write]
   console.info = (...args) => {
     original.info(...args);
     pluginLogInfo(toLogMessage(args)).catch(() => {});
   };
+  // $FlowFixMe[cannot-write]
   console.warn = (...args) => {
     original.warn(...args);
     pluginLogWarn(toLogMessage(args)).catch(() => {});
   };
+  // $FlowFixMe[cannot-write]
   console.error = (...args) => {
     original.error(...args);
     pluginLogError(toLogMessage(args)).catch(() => {});

@@ -74,8 +74,11 @@ const encodeRequestBody = (data: mixed): string | void => {
   if (typeof data === 'string') return bytesToBase64(textEncoder.encode(data));
   if (data instanceof ArrayBuffer) return bytesToBase64(new Uint8Array(data));
   if (ArrayBuffer.isView(data)) {
-    // $FlowFixMe[incompatible-call] - a TypedArray/DataView view is fine here.
-    return bytesToBase64(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+    // Flow's `mixed` refinement doesn't narrow through ArrayBuffer.isView(),
+    // so cast explicitly once rather than suppressing three separate
+    // property-access errors on `data.buffer`/`byteOffset`/`byteLength`.
+    const view: { buffer: ArrayBuffer, byteOffset: number, byteLength: number } = (data: any);
+    return bytesToBase64(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
   }
   throw new Error(
     `AxiosTauriAdapter: unsupported request body type for ${typeof data}; ` +
@@ -90,7 +93,7 @@ const tauriAxiosAdapter = (config: Object): Promise<Object> => {
   // Headers are already flattened to a plain object by axios's
   // dispatchRequest before the adapter runs; drop anything non-string
   // (axios sometimes carries a `common`/method-keyed residue on edge paths).
-  const headers = {};
+  const headers: { [string]: string } = {};
   Object.keys(config.headers || {}).forEach(name => {
     const value = config.headers[name];
     if (typeof value === 'string') headers[name] = value;

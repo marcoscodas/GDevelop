@@ -27,3 +27,6 @@ serde_json = "1"
 # Async HTTP client for flush_export's filesToDownload. rustls-tls avoids a
 # system OpenSSL build dependency.
 reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls"] }
+# http_fetch.rs base64-encodes request/response bodies crossing the JS/Rust
+# boundary uniformly, so neither side has to guess text vs. binary.
+base64 = "0.22"

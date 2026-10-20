@@ -77,6 +77,7 @@ const TauriBridge: MockedTauriBridge = {
   closePreviewWindow: jest.fn(),
   closeAllPreviewWindows: jest.fn(),
   onPreviewWindowClosed: jest.fn(),
+  httpFetch: jest.fn(),
 };
 
 const applyDefaultImplementations = (): void => {

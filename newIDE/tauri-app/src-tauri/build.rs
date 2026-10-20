@@ -8,6 +8,7 @@ fn main() {
             "scope_allow_project_dir",
             "fs_stat_many",
             "flush_export",
+            "http_fetch",
             "preview_server_start",
             "preview_server_stop",
             "preview_window_open",

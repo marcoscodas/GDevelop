@@ -21,6 +21,7 @@
     "allow-scope-allow-project-dir",
     "allow-fs-stat-many",
     "allow-flush-export",
+    "allow-http-fetch",
     "allow-preview-server-start",
     "allow-preview-server-stop",
     "allow-preview-window-open",

@@ -1,5 +1,8 @@
 // @flow
 
+// Must run before any Utils/GDevelopServices/*.js import (Authentication,
+// 6 lines below, is the earliest): see InstallAxiosAdapter.js for why.
+import './Utils/Tauri/InstallAxiosAdapter';
 import 'element-closest';
 // $FlowFixMe[missing-export]
 import React, { Component, type Element } from 'react';

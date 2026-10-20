@@ -246,6 +246,23 @@ export type PreviewWindowHandle = {| label: string |};
 
 export type Unlisten = () => void;
 
+// --- v1.1 addition (post-MVP, see http_fetch.rs for the why) ---------------
+export type HttpFetchRequest = {|
+  method: string,
+  url: string,
+  headers: { [string]: string },
+  /** Base64-encoded request body, or undefined for bodyless requests. */
+  bodyBase64?: string,
+|};
+
+export type HttpFetchResponse = {|
+  status: number,
+  statusText: string,
+  headers: { [string]: string },
+  /** Base64-encoded response body; caller decides text vs. JSON vs. Blob. */
+  bodyBase64: string,
+|};
+
 export type TauriBridgeInterface = {|
   // --- lifecycle ---------------------------------------------------------
   /** Fetch platform + well-known dirs once; TauriApp awaits this before create(). Idempotent. */
@@ -317,6 +334,21 @@ export type TauriBridgeInterface = {|
   closeAllPreviewWindows(): Promise<void>,
   /** Subscribe to preview-window closes (user or programmatic); resolves to an unsubscribe fn. */
   onPreviewWindowClosed(callback: (label: string) => void): Promise<Unlisten>,
+
+  // --- generic HTTPS proxy (custom command, v1.1) ------------------------
+  /**
+   * Performs an HTTPS request from Rust, bypassing the webview's CORS
+   * entirely (Rust's HTTP client has no concept of it). Added after the
+   * MVP's first real Windows run showed GDevelop's own backends (asset
+   * store, tutorials, the GDJS runtime fetch preview depends on) failing
+   * together - the likely cause being this app's origin
+   * (`https://tauri.localhost`) not being covered by their CORS allowlist.
+   * Not used directly by application code: installed once as a custom
+   * axios adapter (`Utils/Tauri/AxiosTauriAdapter.js`), so the ~18 existing
+   * `GDevelopServices/*.js` files that already call axios get this for
+   * free. HTTPS only; non-HTTPS URLs reject with OUT_OF_SCOPE.
+   */
+  httpFetch(request: HttpFetchRequest): Promise<HttpFetchResponse>,
 |};
 
 // --- 2. Error mapping --------------------------------------------------------
@@ -728,6 +760,14 @@ const TauriBridge: TauriBridgeInterface = {
       return unlisten;
     } catch (cause) {
       throw toBridgeError(cause);
+    }
+  },
+
+  httpFetch: async (request: HttpFetchRequest): Promise<HttpFetchResponse> => {
+    try {
+      return await invoke('http_fetch', { request });
+    } catch (cause) {
+      throw toBridgeError(cause, request.url);
     }
   },
 };

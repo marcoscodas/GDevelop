@@ -13,6 +13,7 @@
 mod env;
 mod error;
 mod fs_cmds;
+mod http_fetch;
 mod preview_server;
 mod preview_window;
 mod scope;
@@ -51,6 +52,7 @@ fn main() {
             scope::scope_allow_project_dir,
             fs_cmds::fs_stat_many,
             fs_cmds::flush_export,
+            http_fetch::http_fetch,
             preview_server::preview_server_start,
             preview_server::preview_server_stop,
             preview_window::preview_window_open,

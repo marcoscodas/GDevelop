@@ -1,0 +1,240 @@
+// @flow
+import * as React from 'react';
+import MainFrame from './MainFrame';
+import Window from './Utils/Window';
+import ShareDialog from './ExportAndShare/ShareDialog';
+import Authentication from './Utils/GDevelopServices/Authentication';
+import './UI/icomoon-font.css'; // Styles for Icomoon font.
+
+// Reused as-is from the Browser build for the MVP (ADR-001 §1/§3: resource
+// sources, extensions loader, login provider and the Share dialog exporters
+// stay Browser's versions - only storage/preview/resource-move/events-code
+// are Tauri-native in Wave 1).
+import browserResourceSources from './ResourcesList/BrowserResourceSources';
+import browserResourceExternalEditors from './ResourcesList/BrowserResourceExternalEditors';
+import {
+  browserAutomatedExporters,
+  browserManualExporters,
+  browserOnlineWebExporter,
+} from './ExportAndShare/BrowserExporters';
+import makeExtensionsLoader from './JsExtensionsLoader/BrowserJsExtensionsLoader';
+import ObjectsEditorService from './ObjectEditor/ObjectsEditorService';
+import ObjectsRenderingService from './ObjectsRendering/ObjectsRenderingService';
+import Providers from './MainFrame/Providers';
+import ProjectStorageProviders from './ProjectsStorage/ProjectStorageProviders';
+import UrlStorageProvider from './ProjectsStorage/UrlStorageProvider';
+import CloudStorageProvider from './ProjectsStorage/CloudStorageProvider';
+import BrowserEventsFunctionsExtensionOpener from './EventsFunctionsExtensionsLoader/Storage/BrowserEventsFunctionsExtensionOpener';
+import BrowserEventsFunctionsExtensionWriter from './EventsFunctionsExtensionsLoader/Storage/BrowserEventsFunctionsExtensionWriter';
+import BrowserLoginProvider from './LoginProvider/BrowserLoginProvider';
+
+import TauriBridge, { type TauriBridgeEnv } from './Utils/Tauri/TauriBridge';
+
+// --- Forward references (Gate 1) -------------------------------------------
+// None of the five imports below exist yet in this worktree: B3 and B4 are
+// building them in parallel, in their own worktrees. This file - and a build
+// of this worktree in isolation - only becomes buildable once every Wave-1
+// branch lands at Gate 1. See this builder's final report for the exact
+// paths/export names, which are the agreed contract other builders are
+// coding against.
+import TauriFileStorageProvider from './ProjectsStorage/TauriFileStorageProvider';
+import TauriResourceFetcher from './ProjectsStorage/ResourceFetcher/TauriResourceFetcher';
+import TauriResourceMover from './ProjectsStorage/ResourceMover/TauriResourceMover';
+import TauriPreviewLauncher from './ExportAndShare/TauriExporters/TauriPreviewLauncher';
+import { makeTauriEventsFunctionCodeWriter } from './EventsFunctionsExtensionsLoader/CodeWriters/TauriEventsFunctionCodeWriter';
+
+const styles = {
+  loadingMessage: {
+    position: 'absolute',
+    top: 'calc(50% + 80px)',
+    left: 15,
+    right: 15,
+    fontSize: 20,
+    fontFamily: 'sans-serif',
+    color: 'darkgray',
+    textAlign: 'center',
+  },
+};
+
+// Module-level cache of the resolved bridge environment. TauriBridge.init()
+// is awaited once by TauriAppBootstrapper below, before anything Tauri-native
+// renders; this lets any later, synchronous code in this file read it back
+// without a second IPC round-trip. (ADR-001 does not require this to be
+// exposed outside TauriApp.js for Wave 1; Tauri*/EventsFunctionCodeWriter
+// modules created by other builders call TauriBridge.init() themselves,
+// which the contract documents as idempotent.)
+let tauriBridgeEnv: ?TauriBridgeEnv = null;
+
+/**
+ * Defensively unregister any Service Worker registration that may already
+ * exist (ADR-001 §1 item 7 / §4.1). Tauri must never end up running with a
+ * Workbox SW caching bundles across app updates, on any platform: WebKitGTK
+ * is known to fail registration outright (S1), and WebView2's behaviour is
+ * unverified, so this guards both cases rather than assuming either.
+ */
+const unregisterAnyExistingServiceWorkers = () => {
+  if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
+
+  navigator.serviceWorker
+    .getRegistrations()
+    .then(registrations => {
+      registrations.forEach(registration => {
+        registration.unregister().catch(() => {});
+      });
+    })
+    .catch(() => {});
+};
+
+type ContentProps = {|
+  authentication: Authentication,
+  env: TauriBridgeEnv,
+|};
+
+/**
+ * The actual composition root, rendered once TauriBridge.init() has
+ * resolved. Copied in spirit from BrowserApp.js, with the non-SW path
+ * hard-coded (ADR-001 §2.7): this never calls ensureBrowserSWPreviewSession()
+ * and never picks BrowserSWPreviewLauncher - TauriPreviewLauncher (B4) is the
+ * only preview launcher TauriApp ever renders.
+ */
+const TauriAppContent = ({ authentication, env }: ContentProps): React.Node => {
+  Window.setUpContextMenu();
+  const loginProvider = new BrowserLoginProvider(authentication.auth);
+  authentication.setLoginProvider(loginProvider);
+
+  const appArguments = Window.getArguments();
+
+  return (
+    <Providers
+      authentication={authentication}
+      disableCheckForUpdates={!!appArguments['disable-update-check']}
+      makeEventsFunctionCodeWriter={makeTauriEventsFunctionCodeWriter}
+      // $FlowFixMe[incompatible-type]
+      // $FlowFixMe[incompatible-exact]
+      eventsFunctionsExtensionWriter={BrowserEventsFunctionsExtensionWriter}
+      // $FlowFixMe[incompatible-type]
+      // $FlowFixMe[incompatible-exact]
+      eventsFunctionsExtensionOpener={BrowserEventsFunctionsExtensionOpener}
+    >
+      {({ i18n }) => (
+        <ProjectStorageProviders
+          appArguments={appArguments}
+          storageProviders={[
+            TauriFileStorageProvider,
+            UrlStorageProvider,
+            CloudStorageProvider,
+          ]}
+          defaultStorageProvider={TauriFileStorageProvider}
+        >
+          {({
+            getStorageProviderOperations,
+            getStorageProviderResourceOperations,
+            storageProviders,
+            initialFileMetadataToOpen,
+            getStorageProvider,
+          }) => (
+            <MainFrame
+              i18n={i18n}
+              useCliCommandRunner={() => {}}
+              renderPreviewLauncher={(props, ref) => (
+                // $FlowFixMe[incompatible-type]
+                <TauriPreviewLauncher {...props} ref={ref} />
+              )}
+              renderShareDialog={props => (
+                <ShareDialog
+                  project={props.project}
+                  onSaveProject={props.onSaveProject}
+                  isSavingProject={props.isSavingProject}
+                  onChangeSubscription={props.onChangeSubscription}
+                  onClose={props.onClose}
+                  automatedExporters={browserAutomatedExporters}
+                  manualExporters={browserManualExporters}
+                  onlineWebExporter={browserOnlineWebExporter}
+                  allExportersRequireOnline
+                  fileMetadata={props.fileMetadata}
+                  storageProvider={props.storageProvider}
+                  initialTab={props.initialTab}
+                  gamesList={props.gamesList}
+                />
+              )}
+              storageProviders={storageProviders}
+              resourceMover={TauriResourceMover}
+              resourceFetcher={TauriResourceFetcher}
+              getStorageProviderOperations={getStorageProviderOperations}
+              getStorageProviderResourceOperations={
+                getStorageProviderResourceOperations
+              }
+              getStorageProvider={getStorageProvider}
+              resourceSources={browserResourceSources}
+              resourceExternalEditors={browserResourceExternalEditors}
+              extensionsLoader={makeExtensionsLoader({
+                objectsEditorService: ObjectsEditorService,
+                objectsRenderingService: ObjectsRenderingService,
+                filterExamples: !Window.isDev(),
+              })}
+              initialFileMetadataToOpen={initialFileMetadataToOpen}
+              initialExampleSlugToOpen={
+                appArguments['create-from-example'] || null
+              }
+            />
+          )}
+        </ProjectStorageProviders>
+      )}
+    </Providers>
+  );
+};
+
+type BootstrapperProps = {| authentication: Authentication |};
+type BootstrapperState = {| env: ?TauriBridgeEnv, error: ?Error |};
+
+/**
+ * `index.js` awaits only the dynamic `import('./TauriApp')`, not a further
+ * promise from `create()` (mirroring BrowserApp/LocalApp's synchronous
+ * `create()` keeps index.js's two-line diff, see ADR-001 §2.2). So the
+ * `TauriBridge.init()` round-trip this file must await (per the bridge
+ * contract: "TauriApp awaits this before create()") happens here instead,
+ * inside componentDidMount: nothing Tauri-native (storage providers,
+ * preview launcher, MainFrame) is rendered until it resolves.
+ */
+class TauriAppBootstrapper extends React.Component<
+  BootstrapperProps,
+  BootstrapperState
+> {
+  state: BootstrapperState = { env: null, error: null };
+
+  componentDidMount() {
+    unregisterAnyExistingServiceWorkers();
+
+    TauriBridge.init()
+      .then(env => {
+        tauriBridgeEnv = env;
+        this.setState({ env });
+      })
+      .catch(error => this.setState({ error }));
+  }
+
+  render(): React.Node {
+    const { env, error } = this.state;
+
+    if (error) {
+      return (
+        <div style={styles.loadingMessage}>
+          Unable to initialize the GDevelop desktop app ({error.message}).
+          Please restart the application.
+        </div>
+      );
+    }
+
+    if (!env) {
+      return <div style={styles.loadingMessage}>Loading...</div>;
+    }
+
+    return (
+      <TauriAppContent authentication={this.props.authentication} env={env} />
+    );
+  }
+}
+
+export const create = (authentication: Authentication): React.Node => (
+  <TauriAppBootstrapper authentication={authentication} />
+);

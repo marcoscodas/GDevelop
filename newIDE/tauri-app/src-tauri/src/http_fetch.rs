@@ -69,7 +69,16 @@ pub async fn http_fetch(request: HttpFetchRequest) -> Result<HttpFetchResponse, 
     let method = reqwest::Method::from_bytes(request.method.to_uppercase().as_bytes())
         .map_err(|e| CommandError::new("UNKNOWN", format!("invalid HTTP method: {e}")))?;
 
-    let client = reqwest::Client::new();
+    // No timeout at all would mean a hung backend makes the whole app look
+    // frozen rather than failing cleanly (e.g. the asset store spinning
+    // forever instead of showing an error). 30s matches a generous but
+    // bounded wait for a single API call; this isn't the preview server
+    // (loopback, instant) or a large asset download, just small JSON/text
+    // responses from GDevelop's own APIs.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| CommandError::new("UNKNOWN", format!("failed to build HTTP client: {e}")))?;
     let mut builder = client.request(method, &request.url);
     for (name, value) in &request.headers {
         builder = builder.header(name, value);

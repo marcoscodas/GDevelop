@@ -1,0 +1,29 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window: dialogs, local file access (scope is extended at runtime via scope_allow_project_dir) and the custom TauriBridge commands.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-copy-file",
+    "fs:allow-stat",
+    "fs:allow-read-dir",
+    "fs:allow-appcache-write-recursive",
+    "allow-app-env",
+    "allow-scope-allow-project-dir",
+    "allow-fs-stat-many",
+    "allow-flush-export",
+    "allow-preview-server-start",
+    "allow-preview-server-stop",
+    "allow-preview-window-open",
+    "allow-preview-window-close",
+    "allow-preview-window-close-all"
+  ]
+}

@@ -1,0 +1,24 @@
+[package]
+name = "gdevelop"
+version = "5.6.284"
+description = "GDevelop 5 IDE - the open-source, cross-platform game engine designed for everyone"
+authors = ["GDevelop Team <hello@gdevelop.io>"]
+license = "MIT"
+homepage = "https://gdevelop.io"
+edition = "2021"
+rust-version = "1.77.2"
+
+[build-dependencies]
+tauri-build = { version = "2.7.3", features = [] }
+
+[dependencies]
+# `protocol-asset` is required for `app.asset_protocol_scope()` (scope.rs) and for
+# the JS-side `convertFileSrc` used by TauriBridge.getResourceUrl(Sync).
+tauri = { version = "2.12.4", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2.8.3"
+tauri-plugin-fs = "2.7.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Async HTTP client for flush_export's filesToDownload. rustls-tls avoids a
+# system OpenSSL build dependency.
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls"] }

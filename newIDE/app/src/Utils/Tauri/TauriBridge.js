@@ -73,61 +73,83 @@ const toLogMessage = (args: Array<mixed>): string =>
     })
     .join(' ');
 
+/**
+ * Diagnostics must never be able to break the app. This whole function body
+ * is wrapped so that ANY failure here (e.g. `console.log = ...` throwing a
+ * TypeError if some environment freezes/protects console methods in a way
+ * neither this sandbox's WebKitGTK spike nor plain Node ever exercised -
+ * real WebView2 is untested territory for this specific monkey-patch) is
+ * swallowed rather than propagating out of `init()`, which would otherwise
+ * leave `TauriAppBootstrapper` stuck forever: `attachConsoleOnce()` runs
+ * BEFORE `init()`'s own try/catch (which only wraps the `invoke('app_env')`
+ * call), so an uncaught throw here would reject `init()`'s promise for a
+ * reason that has nothing to do with whether the app can actually start.
+ */
 const attachConsoleOnce = (): void => {
   if (consoleAttached) return;
   consoleAttached = true;
 
-  if (typeof window === 'undefined' || typeof console === 'undefined') return;
+  try {
+    if (typeof window === 'undefined' || typeof console === 'undefined') return;
 
-  const original = {
-    log: console.log,
-    debug: console.debug,
-    info: console.info,
-    warn: console.warn,
-    error: console.error,
-  };
-  // $FlowFixMe[cannot-write] - Flow's Console lib type marks these read-only; a deliberate monkey-patch.
-  console.log = (...args) => {
-    original.log(...args);
-    pluginLogDebug(toLogMessage(args)).catch(() => {});
-  };
-  // $FlowFixMe[cannot-write]
-  console.debug = (...args) => {
-    original.debug(...args);
-    pluginLogDebug(toLogMessage(args)).catch(() => {});
-  };
-  // $FlowFixMe[cannot-write]
-  console.info = (...args) => {
-    original.info(...args);
-    pluginLogInfo(toLogMessage(args)).catch(() => {});
-  };
-  // $FlowFixMe[cannot-write]
-  console.warn = (...args) => {
-    original.warn(...args);
-    pluginLogWarn(toLogMessage(args)).catch(() => {});
-  };
-  // $FlowFixMe[cannot-write]
-  console.error = (...args) => {
-    original.error(...args);
-    pluginLogError(toLogMessage(args)).catch(() => {});
-  };
+    const original = {
+      log: console.log,
+      debug: console.debug,
+      info: console.info,
+      warn: console.warn,
+      error: console.error,
+    };
+    // $FlowFixMe[cannot-write] - Flow's Console lib type marks these read-only; a deliberate monkey-patch.
+    console.log = (...args) => {
+      original.log(...args);
+      pluginLogDebug(toLogMessage(args)).catch(() => {});
+    };
+    // $FlowFixMe[cannot-write]
+    console.debug = (...args) => {
+      original.debug(...args);
+      pluginLogDebug(toLogMessage(args)).catch(() => {});
+    };
+    // $FlowFixMe[cannot-write]
+    console.info = (...args) => {
+      original.info(...args);
+      pluginLogInfo(toLogMessage(args)).catch(() => {});
+    };
+    // $FlowFixMe[cannot-write]
+    console.warn = (...args) => {
+      original.warn(...args);
+      pluginLogWarn(toLogMessage(args)).catch(() => {});
+    };
+    // $FlowFixMe[cannot-write]
+    console.error = (...args) => {
+      original.error(...args);
+      pluginLogError(toLogMessage(args)).catch(() => {});
+    };
 
-  window.addEventListener('error', event => {
-    pluginLogError(
-      `Uncaught error: ${event.message} (${event.filename}:${event.lineno}:${
-        event.colno
-      })`
-    ).catch(() => {});
-  });
-  window.addEventListener('unhandledrejection', event => {
-    pluginLogError(`Unhandled promise rejection: ${String(event.reason)}`).catch(
+    window.addEventListener('error', event => {
+      pluginLogError(
+        `Uncaught error: ${event.message} (${event.filename}:${
+          event.lineno
+        }:${event.colno})`
+      ).catch(() => {});
+    });
+    window.addEventListener('unhandledrejection', event => {
+      pluginLogError(
+        `Unhandled promise rejection: ${String(event.reason)}`
+      ).catch(() => {});
+    });
+
+    pluginLogInfo('[TauriBridge] console + error forwarding attached').catch(
       () => {}
     );
-  });
-
-  pluginLogInfo('[TauriBridge] console + error forwarding attached').catch(
-    () => {}
-  );
+  } catch (e) {
+    // Can't log this through the plugin (that's exactly what just failed to
+    // set up); fall back to the original console, best-effort.
+    try {
+      console.error('[TauriBridge] failed to attach console forwarding', e);
+    } catch (e2) {
+      // Truly nothing we can do; give up silently.
+    }
+  }
 };
 
 // --- 1. Types (contract v1, section 1) -------------------------------------

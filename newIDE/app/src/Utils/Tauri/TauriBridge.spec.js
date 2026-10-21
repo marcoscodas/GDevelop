@@ -176,4 +176,67 @@ describe('TauriBridge (real implementation)', () => {
       expect(error && error.code).toBe('OUT_OF_SCOPE');
     });
   });
+
+  describe('init() console-forwarding safety (post-first-Windows-run fix)', () => {
+    it('still resolves env even if console.log cannot be reassigned, instead of hanging forever', async () => {
+      // The real suspect behind "the app got stuck on Loading... forever" on
+      // the first real Windows run: attachConsoleOnce() runs BEFORE init()'s
+      // own try/catch (which only wraps invoke('app_env')), so an uncaught
+      // throw there - e.g. if some real WebView2 context protects console
+      // methods in a way this sandbox's WebKitGTK spike and plain Node never
+      // exercised - would reject init()'s promise for a reason that has
+      // nothing to do with whether the app can actually start.
+      //
+      // Simulated via an accessor property whose setter always throws when
+      // invoked, rather than a plain non-writable data property: a sloppy-
+      // mode assignment to a non-writable data property silently no-ops
+      // instead of throwing (only strict mode throws there, and this test
+      // file's own Babel/Jest transform runs in sloppy mode, unlike the
+      // real bundled app, which is always strict as ES modules) - an
+      // accessor setter throws unconditionally either way, which is both
+      // environment-independent and a closer match to "something throws
+      // during this reassignment" in general.
+      const originalLog = console.log;
+      // $FlowFixMe[cannot-write] - Flow's Console lib type marks `log` read-only; deliberately redefining it for this test.
+      Object.defineProperty(console, 'log', {
+        get: () => originalLog,
+        set: () => {
+          throw new TypeError('simulated: console.log cannot be reassigned');
+        },
+        configurable: true,
+      });
+
+      // attachConsoleOnce() early-returns under `typeof window === 'undefined'`
+      // - true here, since this whole test file runs under Jest's `node`
+      // environment (not jsdom), not because of anything Tauri-specific.
+      // Without a window stub this test would pass vacuously either way
+      // (the console-patching code is never reached at all), which is
+      // exactly what happened the first time this test was written.
+      // $FlowFixMe[cannot-resolve-name] - Jest `node` env has no real window.
+      global.window = { addEventListener: jest.fn() };
+
+      try {
+        mockFn(invoke).mockResolvedValueOnce({
+          platform: 'windows',
+          pathSeparator: '\\',
+          appCacheDir: 'C:\\cache',
+          documentDir: 'C:\\Documents',
+          appVersion: '1.0.0',
+        });
+
+        await expect(TauriBridge.init()).resolves.toMatchObject({
+          platform: 'windows',
+        });
+      } finally {
+        // $FlowFixMe[cannot-write]
+        Object.defineProperty(console, 'log', {
+          value: originalLog,
+          writable: true,
+          configurable: true,
+        });
+        // $FlowFixMe[cannot-resolve-name]
+        delete global.window;
+      }
+    });
+  });
 });

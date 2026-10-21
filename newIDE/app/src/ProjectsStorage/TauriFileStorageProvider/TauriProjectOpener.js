@@ -3,10 +3,8 @@ import TauriBridge from '../../Utils/Tauri/TauriBridge';
 import { type FileMetadata } from '../index';
 import { unsplit } from '../../Utils/ObjectSplitter';
 
-/**
- * Tauri equivalent of LocalProjectOpener.js, using TauriBridge instead of
- * `fs`/`electron.remote.dialog`. See TauriBridge-contract.md §4 (B3).
- */
+// Tauri equivalent of LocalProjectOpener.js, using TauriBridge instead of
+// `fs`/`electron.remote.dialog`.
 
 const readJSONFile = async (filePath: string): Promise<Object> => {
   try {
@@ -26,10 +24,7 @@ export const onOpenWithPicker = async (): Promise<?FileMetadata> => {
 
   const fileIdentifier = filePaths[0];
 
-  // Granting access as soon as a file is picked is harmless even though
-  // `onOpen` (called right after by the caller) grants it again: the
-  // extension is idempotent and this keeps the behavior correct even if
-  // this function is ever called on its own.
+  // Idempotent; harmless that onOpen grants it again right after.
   await TauriBridge.allowProjectDirectory(
     await TauriBridge.dirname(fileIdentifier)
   );
@@ -45,10 +40,8 @@ export const onOpen = async (
   const filePath = fileMetadata.fileIdentifier;
   const projectPath = await TauriBridge.dirname(filePath);
 
-  // Must be called on EVERY project open (ADR-001 §3 B3 / contract §4):
-  // this is the only path that covers opens from the recent-projects list
-  // and from the autosave flow, neither of which goes through the native
-  // open dialog (which would only scope the single picked file anyway).
+  // Covers opens from the recent-projects list and autosave, which skip
+  // the native dialog.
   await TauriBridge.allowProjectDirectory(projectPath);
 
   const object = await readJSONFile(filePath);

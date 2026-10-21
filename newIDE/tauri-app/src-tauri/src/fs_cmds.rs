@@ -232,10 +232,7 @@ async fn download_files(
         return;
     }
 
-    // Same IPv4-preferring resolver as http_fetch (see
-    // `http_fetch::Ipv4PreferringResolver`): export downloads come from the
-    // same resources.gdevelop-app.com host that http_fetch can't reach on
-    // the tester's Windows machine (suspected broken IPv6 path).
+    // Same resolver as http_fetch: downloads hit the same hosts.
     let client = reqwest::Client::builder()
         .dns_resolver(crate::http_fetch::ipv4_preferring_resolver())
         .build()

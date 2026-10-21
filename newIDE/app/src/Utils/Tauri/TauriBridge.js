@@ -1,16 +1,7 @@
 // @flow
-// newIDE/app/src/Utils/Tauri/TauriBridge.js — contract v1 implementation.
-//
-// This is the ONLY file in the Tauri codebase allowed to import `@tauri-apps/*`
-// or call `optionalRequire` on `electron`/`fs`/`path`/`os` (see
-// TauriBridge-contract.md section 6, the single-import-point lint rule). Every
-// other Tauri file (TauriApp.js, ProjectsStorage/Tauri*, ExportAndShare/TauriExporters,
-// the rest of Utils/Tauri, and Tauri code writers/fetchers/movers) must go
-// through this module instead of importing the SDK or Node-ish globals directly.
-//
-// The contract (frozen for Wave 1, see TauriBridge-contract.md) is implemented
-// exactly: every method here is async and returns a Promise, with exactly one
-// documented exception, `getResourceUrlSync` (contract section 5).
+// Only file in the Tauri codebase allowed to import `@tauri-apps/*` or call
+// `optionalRequire` on electron/fs/path/os (TauriBridge-contract.md section 6).
+// Every method is async except the documented exception, getResourceUrlSync.
 
 import {
   open as pluginShowOpenDialog,
@@ -41,25 +32,10 @@ import {
   debug as pluginLogDebug,
 } from '@tauri-apps/plugin-log';
 
-// MVP diagnostics: forwards `console.*` calls (libGD.js init messages,
-// resource/SW failures...), plus uncaught errors and unhandled promise
-// rejections, into the Rust-side log sink (see tauri-app/src-tauri/src/
-// main.rs's tauri_plugin_log registration), so a tester's log file is a
-// complete record without needing devtools open.
-//
-// NOTE, corrected after the first real Windows run (2026-10-20): this
-// package's `attachConsole()`/`attachLogger()` do the OPPOSITE of what the
-// name suggests - they forward Rust-side logs INTO the webview console (for
-// when devtools is open), not the webview's console out to Rust. The actual
-// JS-to-Rust direction is the plain `error`/`warn`/`info`/`debug` functions
-// imported above, each a thin `invoke('plugin:log|log', ...)`. The first
-// build shipped with the former, which produced an almost-empty log file
-// (just tao/wry's own internal debug lines) - this monkey-patch is the fix.
-//
-// `init()` is awaited exactly once by TauriApp.js before first render, which
-// makes it the natural, single place to start this - not a reason to treat
-// it as part of the frozen contract's public surface (it isn't listed in
-// TauriBridgeInterface and callers must not rely on its return value).
+// Forwards console.* calls, uncaught errors and unhandled rejections into
+// the Rust log sink (main.rs's tauri_plugin_log), so the log file is a
+// complete record without devtools open. Not part of the contract's public
+// surface - just started once, from init().
 let consoleAttached = false;
 const toLogMessage = (args: Array<mixed>): string =>
   args
@@ -73,18 +49,9 @@ const toLogMessage = (args: Array<mixed>): string =>
     })
     .join(' ');
 
-/**
- * Diagnostics must never be able to break the app. This whole function body
- * is wrapped so that ANY failure here (e.g. `console.log = ...` throwing a
- * TypeError if some environment freezes/protects console methods in a way
- * neither this sandbox's WebKitGTK spike nor plain Node ever exercised -
- * real WebView2 is untested territory for this specific monkey-patch) is
- * swallowed rather than propagating out of `init()`, which would otherwise
- * leave `TauriAppBootstrapper` stuck forever: `attachConsoleOnce()` runs
- * BEFORE `init()`'s own try/catch (which only wraps the `invoke('app_env')`
- * call), so an uncaught throw here would reject `init()`'s promise for a
- * reason that has nothing to do with whether the app can actually start.
- */
+// Diagnostics must never break the app: this runs before init()'s own
+// try/catch, so an uncaught throw here (e.g. console.log being read-only
+// in some environment) would otherwise fail init() for an unrelated reason.
 const attachConsoleOnce = (): void => {
   if (consoleAttached) return;
   consoleAttached = true;
@@ -99,7 +66,7 @@ const attachConsoleOnce = (): void => {
       warn: console.warn,
       error: console.error,
     };
-    // $FlowFixMe[cannot-write] - Flow's Console lib type marks these read-only; a deliberate monkey-patch.
+    // $FlowFixMe[cannot-write]
     console.log = (...args) => {
       original.log(...args);
       pluginLogDebug(toLogMessage(args)).catch(() => {});
@@ -142,13 +109,10 @@ const attachConsoleOnce = (): void => {
       () => {}
     );
   } catch (e) {
-    // Can't log this through the plugin (that's exactly what just failed to
-    // set up); fall back to the original console, best-effort.
+    // Best-effort fallback; the plugin logger is what just failed.
     try {
       console.error('[TauriBridge] failed to attach console forwarding', e);
-    } catch (e2) {
-      // Truly nothing we can do; give up silently.
-    }
+    } catch (e2) {}
   }
 };
 
@@ -254,7 +218,7 @@ export type FlushExportResult = {|
 |};
 
 export type PreviewServer = {|
-  /** e.g. "http://127.0.0.1:53817" — always loopback, never 0.0.0.0 in Wave 1. */
+  /** e.g. "http://127.0.0.1:53817" — always loopback, never 0.0.0.0. */
   origin: string,
   port: number,
   root: string,
@@ -273,7 +237,7 @@ export type PreviewWindowHandle = {| label: string |};
 
 export type Unlisten = () => void;
 
-// --- v1.1 addition (post-MVP, see http_fetch.rs for the why) ---------------
+// --- generic HTTPS proxy, see http_fetch.rs -------------------------------
 export type HttpFetchRequest = {|
   method: string,
   url: string,
@@ -363,28 +327,14 @@ export type TauriBridgeInterface = {|
   onPreviewWindowClosed(callback: (label: string) => void): Promise<Unlisten>,
 
   // --- generic HTTPS proxy (custom command, v1.1) ------------------------
-  /**
-   * Performs an HTTPS request from Rust, bypassing the webview's CORS
-   * entirely (Rust's HTTP client has no concept of it). Added after the
-   * MVP's first real Windows run showed GDevelop's own backends (asset
-   * store, tutorials, the GDJS runtime fetch preview depends on) failing
-   * together - the likely cause being this app's origin
-   * (`https://tauri.localhost`) not being covered by their CORS allowlist.
-   * Not used directly by application code: installed once as a custom
-   * axios adapter (`Utils/Tauri/AxiosTauriAdapter.js`), so the ~18 existing
-   * `GDevelopServices/*.js` files that already call axios get this for
-   * free. HTTPS only; non-HTTPS URLs reject with OUT_OF_SCOPE.
-   */
+  /** HTTPS request from Rust, bypassing the webview's CORS. HTTPS only. */
   httpFetch(request: HttpFetchRequest): Promise<HttpFetchResponse>,
 |};
 
 // --- 2. Error mapping --------------------------------------------------------
 //
-// plugin-fs/plugin-dialog/custom commands reject with a string (or an object
-// with a `message` string) rather than a typed error. We do our best to infer
-// a TauriBridgeErrorCode from that message so callers can branch on `code`
-// (e.g. OUT_OF_SCOPE -> call allowProjectDirectory and retry) without having
-// to string-match themselves.
+// Plugins reject with a string or a plain object, not a typed error; infer
+// a TauriBridgeErrorCode from the message so callers can branch on `code`.
 
 const errorMessageOf = (cause: mixed): string => {
   if (typeof cause === 'string') return cause;
@@ -482,11 +432,8 @@ const toBridgeError = (cause: mixed, path?: ?string): TauriBridgeError => {
 
 // --- 3. Pure path helpers for getResourceUrl/getResourceUrlSync ------------
 //
-// Contract section 5: the resolution of a (possibly relative) resource path
-// against the project file's directory must be pure JS, must never call IPC,
-// and must give the exact same result for getResourceUrl and
-// getResourceUrlSync. It recognizes `X:\`, `X:/` and `\\server\share` as
-// absolute on Windows, and `/` elsewhere.
+// Pure JS, no IPC (contract section 5): same result for both. Recognizes
+// `X:\`, `X:/` and `\\server\share` as absolute on Windows, `/` elsewhere.
 
 const WINDOWS_ABSOLUTE_PATH_RE = /^[a-zA-Z]:[\\/]|^\\\\/;
 
@@ -683,14 +630,11 @@ const TauriBridge: TauriBridgeInterface = {
 
   extname: async (path: string): Promise<string> => {
     try {
-      // @tauri-apps/api/path's extname returns the extension WITHOUT the
-      // leading dot (unlike Node's path.extname). The contract specifies
-      // "including the dot, or '' if none", so we add it back here.
+      // @tauri-apps/api/path's extname omits the leading dot; add it back.
       const extensionWithoutDot = await pathExtname(path);
       return extensionWithoutDot ? `.${extensionWithoutDot}` : '';
     } catch (cause) {
-      // extname() rejects (instead of resolving '') when the path has no
-      // extension at all on some Tauri versions; treat that as ''.
+      // Some Tauri versions reject instead of resolving '' when there's no extension.
       const bridgeError = toBridgeError(cause, path);
       if (bridgeError.code === 'NOT_FOUND' || bridgeError.code === 'UNKNOWN')
         return '';
@@ -719,10 +663,8 @@ const TauriBridge: TauriBridgeInterface = {
     }
   },
 
-  // SYNC EXCEPTION (contract §5): convertFileSrc is pure string building over
-  // window.__TAURI_INTERNALS__, and the path resolution above never calls IPC,
-  // so this can stay synchronous without any extra cost. Must return the same
-  // result as getResourceUrl for the same inputs (checked by B6).
+  // SYNC EXCEPTION (contract §5): convertFileSrc is pure string building,
+  // no IPC. Must match getResourceUrl for the same inputs.
   getResourceUrlSync: (projectFilePath: string, resourcePath: string): string =>
     convertFileSrc(resolveResourceAbsolutePath(projectFilePath, resourcePath)),
 

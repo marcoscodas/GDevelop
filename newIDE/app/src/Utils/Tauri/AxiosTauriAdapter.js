@@ -1,34 +1,16 @@
 // @flow
-// newIDE/app/src/Utils/Tauri/AxiosTauriAdapter.js
-//
-// A custom axios adapter that routes every request through
-// `TauriBridge.httpFetch` (Rust, via `reqwest`) instead of the browser's
-// XHR/fetch, so GDevelop's ~18 `Utils/GDevelopServices/*.js` files (all of
-// which call axios directly, many via their own `axios.create()` instance)
-// get CORS-free requests without a single one of those files changing - see
-// `http_fetch.rs` for why this exists.
-//
-// Written against axios 0.18.1 (the version this app is pinned to)'s
-// adapter contract: `(config) => Promise<response>`, called by
-// `dispatchRequest` AFTER it has already resolved `config.baseURL` into an
-// absolute `config.url` and flattened `config.headers` into a plain object.
-// This file intentionally reuses axios's own internal `buildURL` (query
-// string building) and `createError` (network-error shape) helpers rather
-// than reimplementing them, so behavior matches the real XHR adapter
-// exactly for anything this adapter doesn't itself change.
-//
-// Per the single-import-point rule (TauriBridge-contract.md section 6):
-// this file does not import `@tauri-apps/*` directly, only `TauriBridge`.
+// Custom axios adapter routing requests through TauriBridge.httpFetch
+// (see http_fetch.rs), so GDevelopServices/*.js callers get CORS-free
+// requests with no per-file changes. Only file besides TauriBridge.js
+// allowed near the SDK boundary - reuses axios's own buildURL/createError
+// so untouched behavior matches the real XHR adapter.
 
 import buildURL from 'axios/lib/helpers/buildURL';
 import createError from 'axios/lib/core/createError';
 import settle from 'axios/lib/core/settle';
 import TauriBridge from './TauriBridge';
 
-// Jest's `testEnvironment: 'node'` sandbox doesn't expose `Blob` as a global
-// even on a Node version that has it (unlike a real webview, where it's
-// always a global) - fall back to Node's own `buffer.Blob` so this works
-// under test too, without changing behavior in the real app.
+// Jest's node environment has no global Blob.
 const BlobCtor: typeof Blob =
   typeof Blob !== 'undefined' ? Blob : require('buffer').Blob;
 
@@ -60,23 +42,13 @@ const base64ToBytes = (base64: string): Uint8Array => {
   return bytes;
 };
 
-/**
- * axios 0.18's `transformRequest` default already JSON.stringifies plain
- * objects and sets the Content-Type header before the adapter ever sees
- * `config.data` - so by adapter time, `data` is always a string, an
- * ArrayBuffer/ArrayBufferView, or null/undefined. FormData/Blob/Stream
- * request bodies are not used by any of the ~18 GDevelopServices callers
- * today (checked at the time this was written); such a body reaching here
- * throws a clear error instead of silently sending garbage.
- */
+// No caller sends FormData/Blob/Stream; such a body throws here instead
+// of silently sending garbage.
 const encodeRequestBody = (data: mixed): string | void => {
   if (data === undefined || data === null) return undefined;
   if (typeof data === 'string') return bytesToBase64(textEncoder.encode(data));
   if (data instanceof ArrayBuffer) return bytesToBase64(new Uint8Array(data));
   if (ArrayBuffer.isView(data)) {
-    // Flow's `mixed` refinement doesn't narrow through ArrayBuffer.isView(),
-    // so cast explicitly once rather than suppressing three separate
-    // property-access errors on `data.buffer`/`byteOffset`/`byteLength`.
     const view: { buffer: ArrayBuffer, byteOffset: number, byteLength: number } = (data: any);
     return bytesToBase64(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
   }
@@ -90,9 +62,7 @@ const tauriAxiosAdapter = (config: Object): Promise<Object> => {
   const url = buildURL(config.url, config.params, config.paramsSerializer);
   const method = (config.method || 'get').toLowerCase();
 
-  // Headers are already flattened to a plain object by axios's
-  // dispatchRequest before the adapter runs; drop anything non-string
-  // (axios sometimes carries a `common`/method-keyed residue on edge paths).
+  // dispatchRequest already flattened headers; drop any non-string residue.
   const headers: { [string]: string } = {};
   Object.keys(config.headers || {}).forEach(name => {
     const value = config.headers[name];
@@ -119,9 +89,7 @@ const tauriAxiosAdapter = (config: Object): Promise<Object> => {
         } else if (config.responseType === 'arraybuffer') {
           data = responseBytes.buffer;
         } else {
-          // Default/'json'/'text': hand back raw text, same as the real XHR
-          // adapter does - axios's own `transformResponse` (run centrally
-          // by dispatchRequest) handles JSON.parse.
+          // dispatchRequest's transformResponse handles JSON.parse.
           data = responseBytes.length === 0 ? '' : textDecoder.decode(responseBytes);
         }
 
@@ -134,12 +102,8 @@ const tauriAxiosAdapter = (config: Object): Promise<Object> => {
           request: {},
         };
 
-        // axios 0.18.1 (this app's pinned version) makes each ADAPTER
-        // responsible for calling `settle()` - unlike later axios versions,
-        // `dispatchRequest` does NOT do status-based rejection centrally.
-        // Confirmed by reading lib/adapters/xhr.js, not assumed: skipping
-        // this meant every response resolved regardless of status code,
-        // breaking every existing `error.response.status` check.
+        // axios 0.18.1 adapters call settle() themselves for status-based
+        // rejection; dispatchRequest doesn't do it centrally.
         settle(resolve, reject, response);
       })
       .catch(cause => {

@@ -27,23 +27,16 @@ import Computer from '../../UI/CustomSvgIcons/Computer';
 import { localFileStorageProviderInternalName } from '../LocalFileStorageProvider/LocalFileStorageProviderInternalName';
 
 /**
- * Use TauriBridge (native dialogs + fs over Tauri plugins/commands) to
- * provide access to the native file system, as a replacement for
- * LocalFileStorageProvider under Tauri.
+ * Uses TauriBridge (native dialogs + fs) to provide access to the native
+ * file system, as a replacement for LocalFileStorageProvider under Tauri.
  *
- * `internalName` is intentionally the *same* `'LocalFile'` constant as the
- * Electron provider (imported, never redefined - ADR-001 §3 B3 correction):
- * over a dozen call sites key off this string (recent files, resource
- * fetcher/mover maps, etc) and must keep working whichever of the two
- * providers (Electron or Tauri) is actually registered by the running app.
+ * `internalName` is the same `'LocalFile'` constant as the Electron
+ * provider (imported, never redefined): recent files and the resource
+ * fetcher/mover maps key off this string regardless of which provider is
+ * actually registered.
  *
- * Out of MVP (ADR-001 §1/§3 B3), left entirely absent here (same as the
- * Browser storage provider), not stubbed:
- *  - `setupResourcesWatcher` (the resources watcher)
- *  - `createResourceOperations` (locate file / open file in OS / scan project
- *    folder for new resources / "remove resources with invalid path" menu
- *    entries)
- *  - adding new resources from disk to an already-open local project
+ * No resources watcher, no locate/scan-for-resources, no adding resources
+ * from disk to an already-open project yet.
  */
 export default ({
   internalName: localFileStorageProviderInternalName,

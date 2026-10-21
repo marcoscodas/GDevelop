@@ -19,11 +19,7 @@ const moveNothing = async () => {
   };
 };
 
-// A resource file is considered absolute if it starts with a POSIX root
-// ("/"), a Windows drive ("C:") or a UNC share ("\\server"). No node `path`
-// module is available here (Wave-1 lint rule): this is a plain string check,
-// mirroring `LocalFileSystem.isAbsolute`'s logic without importing it (that
-// file pulls in `fs`/`os`/`path`, which Tauri code may not import either).
+// POSIX root, Windows drive, or UNC share - no `path` module available here.
 const isAbsolutePath = (filePath: string): boolean => {
   if (filePath.length === 0) return true;
   return (
@@ -34,24 +30,11 @@ const isAbsolutePath = (filePath: string): boolean => {
 };
 
 /**
- * Copy every local, relative resource file from the old project's folder to
- * the new project's folder, preserving its relative path, in a single
- * batched `TauriBridge.flushExport` call (contract §4, B3 consumer notes).
- *
- * Simplifications versus the Electron `LocalResourceMover`'s
- * `LocalFile=>LocalFile` entry (which uses the synchronous
- * `gd.ProjectResourcesCopier.copyAllResourcesTo` over a sync
- * `gdAbstractFileSystem`, impossible to back with TauriBridge's async-only
- * IPC):
- *  - only resources with a relative, non-URL file path are copied (the
- *    common case for a local project); absolute resource paths and URL
- *    resources are left untouched, same as they would be with
- *    `preserveAbsoluteFilenames`.
- *  - relative paths are preserved as-is (no renaming/deduplication): since
- *    the resource's `file` value does not need to change, the project is
- *    not mutated here.
- *  - per-file copy failures are reported but do not stop the others
- *    (`flushExport`'s `failures` are per-file, see contract §1).
+ * Copies every local, relative resource file from the old project folder
+ * to the new one, preserving its relative path, in one batched
+ * `flushExport` call. Unlike Electron's synchronous
+ * `gd.ProjectResourcesCopier`, absolute paths and URLs are left untouched
+ * and per-file failures don't stop the rest.
  */
 export const moveAllLocalFileResourcesToLocalFileResources = async ({
   project,
@@ -150,10 +133,8 @@ const movers: {
     DownloadFileStorageProvider.internalName
   }`]: moveNothing,
 
-  // Moving within local files: resources are copied, relative path
-  // preserved, from the old project's folder to the new one (ADR-001 §2
-  // correction 3, §3 B3). Without this entry, save-as throws "Can't find a
-  // ResourceMover for LocalFile to LocalFile".
+  // Without this, save-as throws "Can't find a ResourceMover for LocalFile
+  // to LocalFile".
   [`${localFileStorageProviderInternalName}=>${localFileStorageProviderInternalName}`]: moveAllLocalFileResourcesToLocalFileResources,
 };
 

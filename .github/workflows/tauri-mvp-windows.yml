@@ -1,10 +1,10 @@
-# Advisory CI for the Tauri MVP (see docs/tauri/ADR-001.md, section 4).
+# Advisory CI for the Tauri MVP: builds, bundle sizes, smoke-test placeholders.
 #
 # - Builds the GDevelop web frontend (newIDE/app) on Windows and Linux and
 #   records the bundle sizes for comparison.
 # - Builds the Tauri app (newIDE/tauri-app) into an NSIS installer on Windows,
 #   uploads it with its byte size, and holds the smoke-test placeholders for the
-#   WebView2-specific checks listed in ADR-001 section 4 (items 1-9).
+#   WebView2-specific checks (items 1-9, see the smoke-test step below).
 #
 # This workflow is advisory. It must NOT be added to the required status checks
 # of branch protection until Wave 2 has real assertions behind the smoke test.
@@ -180,7 +180,7 @@ jobs:
       # test is the installed NSIS build or the target/release binary. The Electron
       # build is the comparison baseline for items 8 and 9.
       #
-      # TODO(wave2) item 1, service worker (ADR section 4.1, section 1 item 7):
+      # TODO(wave2) item 1, service worker:
       #   After the editor has booted, run
       #   `navigator.serviceWorker.getRegistrations()` in the page and assert
       #   the result is an empty array. Also assert there is no service worker
@@ -191,7 +191,7 @@ jobs:
       #   registration that WebKitGTK refused, so this must be tested on Windows
       #   and not assumed.
       #
-      # TODO(wave2) item 2, preview path (ADR section 4.2, section 1 item 5):
+      # TODO(wave2) item 2, preview path:
       #   Open a project and trigger a preview (the Tauri command
       #   preview_window_open or the Preview button). Assert that a second window
       #   opens with a URL starting with `http://127.0.0.1:`. Assert that the game
@@ -199,7 +199,7 @@ jobs:
       #   `/browser_sw_preview/`, using the preview server access log or
       #   `performance.getEntriesByType('resource')` in the preview window.
       #
-      # TODO(wave2) item 3, asset protocol (ADR section 4.3, section 2 item 4):
+      # TODO(wave2) item 3, asset protocol:
       #   Call convertFileSrc on a local image. Expect a URL of the form
       #   `http://asset.localhost/C%3A%5C...`. Assert that an <img> with that URL
       #   reaches naturalWidth > 0. Assert that a Pixi texture loads with
@@ -208,7 +208,7 @@ jobs:
       #   fixtures whose paths contain spaces, non-ASCII characters and a path
       #   longer than 260 characters.
       #
-      # TODO(wave2) item 4, origin acceptance (ADR section 4.4): the app runs at
+      # TODO(wave2) item 4, origin acceptance: the app runs at
       #   `https://tauri.localhost`. From that origin, assert that these calls
       #   succeed (no CORS or referrer rejection):
       #   (a) api.gdevelop.io (CORS preflight and a simple GET);
@@ -219,23 +219,23 @@ jobs:
       #   contract v2 change, which is a maintainer decision. Report the failure
       #   and stop.
       #
-      # TODO(wave2) item 5, window.open popups (ADR section 4.5): trigger the login
+      # TODO(wave2) item 5, window.open popups: trigger the login
       #   portal (BrowserLoginProvider) and an external editor link. Assert that
       #   window.open returns a non-null window, or that a new WebviewWindow
       #   opens. Check both behaviours on WebView2.
       #
-      # TODO(wave2) item 6, Monaco workers (ADR section 4.6, S2 Medium): open the
+      # TODO(wave2) item 6, Monaco workers: open the
       #   event code editor, then pop it out into a separate window. Assert that
       #   the Monaco editor.worker loads with no worker errors in the console.
       #
-      # TODO(wave2) item 7, WebGL on the runner (ADR section 4.7):
+      # TODO(wave2) item 7, WebGL on the runner:
       #   windows-latest has no GPU, so WebView2 may use the WARP/SwiftShader
       #   fallback. Open a scene in the preview. Assert that the canvas returns a
       #   non-null WebGL context and that a read-back of the rendered frame is not
       #   blank. FPS is out of scope. Record which renderer string WebView2
       #   reports, so the fallback is visible in the logs.
       #
-      # TODO(wave2) item 8, measurements (ADR section 4.8, section 1 item 6):
+      # TODO(wave2) item 8, measurements:
       #   (a) NSIS installer size: DONE in the step above (artifacts/nsis-installer-size.txt).
       #   (b) Idle RAM after boot: wait a fixed time after the editor is idle, then
       #       sum the working set of the msedgewebview2.exe processes that belong to
@@ -247,7 +247,7 @@ jobs:
       #   Record all measurements as step summary lines and artifacts. Do not turn
       #   these into pass/fail thresholds until a baseline exists.
       #
-      # TODO(wave2) item 9, tauri-driver and msedgedriver pinning (ADR section 4.9):
+      # TODO(wave2) item 9, tauri-driver and msedgedriver pinning:
       #   tauri-driver on Windows needs an msedgedriver that matches the WebView2
       #   runtime version installed on the runner. Read that version from the
       #   registry key for the WebView2 runtime (EdgeUpdate Clients, GUID
@@ -270,7 +270,7 @@ jobs:
             "8. Measurements (installer size: recorded; idle RAM and cold start vs Electron: NOT MEASURED): see TODO(wave2) item 8",
             "9. tauri-driver and msedgedriver pinning: NOT VERIFIED (placeholder, see TODO(wave2) item 9)"
           )
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Tauri MVP smoke test (ADR-001 section 4)"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Tauri MVP smoke test"
           foreach ($line in $items) {
             Write-Output $line
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- $line"

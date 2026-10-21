@@ -6,10 +6,9 @@ import ShareDialog from './ExportAndShare/ShareDialog';
 import Authentication from './Utils/GDevelopServices/Authentication';
 import './UI/icomoon-font.css'; // Styles for Icomoon font.
 
-// Reused as-is from the Browser build for the MVP (ADR-001 §1/§3: resource
-// sources, extensions loader, login provider and the Share dialog exporters
-// stay Browser's versions - only storage/preview/resource-move/events-code
-// are Tauri-native in Wave 1).
+// Resource sources, extensions loader, login provider and the Share dialog
+// exporters are reused from the Browser build; only storage, preview,
+// resource moving and events code generation are Tauri-native.
 import browserResourceSources from './ResourcesList/BrowserResourceSources';
 import browserResourceExternalEditors from './ResourcesList/BrowserResourceExternalEditors';
 import {
@@ -49,13 +48,8 @@ const styles = {
   },
 };
 
-/**
- * Defensively unregister any Service Worker registration that may already
- * exist (ADR-001 §1 item 7 / §4.1). Tauri must never end up running with a
- * Workbox SW caching bundles across app updates, on any platform: WebKitGTK
- * is known to fail registration outright (S1), and WebView2's behaviour is
- * unverified, so this guards both cases rather than assuming either.
- */
+// Tauri never registers a Service Worker, but unregisters any leftover one
+// defensively - best-effort, must not block startup either way.
 const unregisterAnyExistingServiceWorkers = () => {
   if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
 
@@ -63,15 +57,9 @@ const unregisterAnyExistingServiceWorkers = () => {
     .getRegistrations()
     .then(registrations => {
       registrations.forEach(registration => {
-        // Best-effort: there is no registration to unregister on most
-        // platforms (that's the point of this function), so a rejection
-        // here is the expected case, not an error to surface.
         registration.unregister().catch(() => {});
       });
     })
-    // Startup must not depend on this diagnostic cleanup succeeding; the SW
-    // APIs themselves being unsupported/erroring is not a reason to block
-    // rendering the editor.
     .catch(() => {});
 };
 
@@ -80,13 +68,8 @@ type ContentProps = {|
   env: TauriBridgeEnv,
 |};
 
-/**
- * The actual composition root, rendered once TauriBridge.init() has
- * resolved. Copied in spirit from BrowserApp.js, with the non-SW path
- * hard-coded (ADR-001 §2.7): this never calls ensureBrowserSWPreviewSession()
- * and never picks BrowserSWPreviewLauncher - TauriPreviewLauncher (B4) is the
- * only preview launcher TauriApp ever renders.
- */
+// Rendered once TauriBridge.init() resolves. Always uses TauriPreviewLauncher,
+// never the Service-Worker-based preview path BrowserApp picks.
 const TauriAppContent = ({ authentication, env }: ContentProps): React.Node => {
   Window.setUpContextMenu();
   const loginProvider = new BrowserLoginProvider(authentication.auth);
@@ -98,8 +81,7 @@ const TauriAppContent = ({ authentication, env }: ContentProps): React.Node => {
     <Providers
       authentication={authentication}
       disableCheckForUpdates={!!appArguments['disable-update-check']}
-      // makeTauriEventsFunctionCodeWriter (B4) takes the resolved bridge env
-      // alongside the callbacks, so it can build include paths synchronously.
+      // env is needed to build include paths synchronously.
       makeEventsFunctionCodeWriter={callbacks =>
         makeTauriEventsFunctionCodeWriter({ ...callbacks, env })
       }
@@ -181,15 +163,8 @@ const TauriAppContent = ({ authentication, env }: ContentProps): React.Node => {
 type BootstrapperProps = {| authentication: Authentication |};
 type BootstrapperState = {| env: ?TauriBridgeEnv, error: ?Error |};
 
-/**
- * `index.js` awaits only the dynamic `import('./TauriApp')`, not a further
- * promise from `create()` (mirroring BrowserApp/LocalApp's synchronous
- * `create()` keeps index.js's two-line diff, see ADR-001 §2.2). So the
- * `TauriBridge.init()` round-trip this file must await (per the bridge
- * contract: "TauriApp awaits this before create()") happens here instead,
- * inside componentDidMount: nothing Tauri-native (storage providers,
- * preview launcher, MainFrame) is rendered until it resolves.
- */
+// create() stays synchronous like BrowserApp/LocalApp, so TauriBridge.init()
+// is awaited here instead: nothing Tauri-native renders until it resolves.
 class TauriAppBootstrapper extends React.Component<
   BootstrapperProps,
   BootstrapperState

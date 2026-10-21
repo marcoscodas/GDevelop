@@ -10,8 +10,6 @@ import {
 } from '../../PreviewLauncher.flow';
 import Window from '../../../Utils/Window';
 import { getIDEVersionWithHash } from '../../../Version';
-// Only TauriBridge.js may import `@tauri-apps/*` or call `optionalRequire`
-// for platform access (contract §6); every other Tauri file goes through it.
 import TauriBridge, { type TauriBridgeEnv } from '../../../Utils/Tauri/TauriBridge';
 
 const gd: libGDevelop = global.gd;
@@ -22,15 +20,9 @@ type State = {|
   error: ?Error,
 |};
 
-/**
- * Export the project into an in-memory TauriExportFileSystem rooted at
- * `${env.appCacheDir}/preview` (TauriBridge-contract.md §4), using the
- * Browser/S3 GDJS finder: offline preview is out of MVP scope
- * (ADR-001-tauri-mvp.md §1) because the GDJS runtime is fetched from
- * `resources.gdevelop-app.com`, same as the Browser build. Bundling GDJS as
- * a Tauri resource (which would let `LocalGDJSFinder` be reused instead) is
- * deferred to a later wave.
- */
+// Exports into an in-memory TauriExportFileSystem rooted at the app's
+// preview cache dir, fetching GDJS from the network like the Browser build
+// (no offline preview yet).
 const prepareExporter = async (
   env: TauriBridgeEnv
 ): Promise<{|
@@ -57,16 +49,9 @@ const prepareExporter = async (
 };
 
 /**
- * Launches previews in a second Tauri window, served by the local preview
- * server (ADR-001-tauri-mvp.md §1 item 5 - the only MVP approach; the
- * service-worker preview is ruled out on every platform, and the S3/network
- * preview needs a cloud upload per preview).
- *
- * Out of scope for this launcher (ADR-001 §3, B4): the debugger server
- * (so hot reload isn't available either), network preview, and screenshot
- * capture. None of these must crash the preview - "a preview that fails to
- * reach the debugger must still run" - so they're simply never wired up
- * here instead of being half-implemented.
+ * Launches previews in a second Tauri window, served by a local preview
+ * server. No debugger, hot reload, network preview or screenshot capture
+ * yet - a preview must still run without them.
  */
 export default class TauriPreviewLauncher extends React.Component<
   PreviewLauncherProps,
@@ -79,11 +64,7 @@ export default class TauriPreviewLauncher extends React.Component<
   canDoNetworkPreview = (): boolean => false;
 
   getPreviewDebuggerServer(): any {
-    // Debugger server integration is out of scope for this launcher
-    // (ADR-001-tauri-mvp.md §3, B4). Returning null is the documented
-    // "no debugger available" case for PreviewLauncherInterface - callers
-    // (e.g. hot reload, the Debugger editor) already handle it.
-    return null;
+    return null; // No debugger server yet; callers already handle null.
   }
 
   closeAllPreviews = (): void => {
@@ -96,9 +77,8 @@ export default class TauriPreviewLauncher extends React.Component<
     this.setState({ error: null });
 
     if (previewOptions.isForGameplayTest || previewOptions.isForInGameEdition) {
-      // Gameplay tests and in-game edition rely on an embedded game frame
-      // and the debugger server, both out of MVP scope for Tauri
-      // (ADR-001-tauri-mvp.md §1). Ignore rather than crash.
+      // Both need the embedded game frame and the debugger server, neither
+      // available yet.
       console.warn(
         '[TauriPreviewLauncher] Gameplay tests and in-game edition are not supported yet on Tauri - ignoring this preview request.'
       );
@@ -121,9 +101,7 @@ export default class TauriPreviewLauncher extends React.Component<
     } = previewOptions;
 
     try {
-      // Idempotent: cheap to call again rather than threading `env` through
-      // props (TauriBridge-contract.md §4 leaves the choice to B4).
-      const env = await TauriBridge.init();
+      const env = await TauriBridge.init(); // Idempotent, cheap to call again.
 
       const {
         outputDir,
@@ -148,10 +126,7 @@ export default class TauriPreviewLauncher extends React.Component<
         );
       }
 
-      // No debugger server is started for Tauri previews (out of scope,
-      // see class doc comment): use the minimal client so the game still
-      // runs without trying to reach one.
-      previewExportOptions.useMinimalDebuggerClient();
+      previewExportOptions.useMinimalDebuggerClient(); // No debugger server yet.
 
       const includeFileHashs = this.props.getIncludeFileHashs();
       for (const includeFile in includeFileHashs) {
@@ -206,23 +181,19 @@ export default class TauriPreviewLauncher extends React.Component<
           JSON.stringify(previewOptions.inGameEditorSettings)
         );
       }
-      // Screenshot capture is out of scope for this launcher (ADR-001 §3,
-      // B4): previewOptions.captureOptions is intentionally never read.
+      // previewOptions.captureOptions is intentionally never read: no
+      // screenshot capture yet.
 
       exporter.exportProjectForPixiPreview(previewExportOptions);
       previewExportOptions.delete();
       exporter.delete();
 
-      // Write the staged files to real disk, and have Rust download the
-      // GDJS runtime files referenced by URL, in one IPC call
-      // (TauriBridge-contract.md §1). Start fresh each time, like the
-      // other preview launchers.
+      // Writes staged files to disk and downloads any URL-referenced ones.
       const flushResult = await tauriExportFileSystem.flush({
         outputDir,
         clearOutputDir: true,
       });
       if (flushResult.failures.length) {
-        // A missing resource must not kill the preview (contract §1).
         console.error(
           `[TauriPreviewLauncher] Preview #${previewId}: ${
             flushResult.failures.length

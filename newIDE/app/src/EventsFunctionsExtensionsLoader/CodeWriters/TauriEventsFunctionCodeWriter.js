@@ -5,9 +5,6 @@ import {
 } from '..';
 import { makeTimestampedId } from '../../Utils/TimestampedId';
 import slugs from 'slugs';
-// Only TauriBridge.js may import `@tauri-apps/*` or call `optionalRequire`
-// for platform access (contract §6): generated code is written with
-// `TauriBridge.writeTextFile`, never a raw `fs` call.
 import TauriBridge, {
   type TauriBridgeEnv,
 } from '../../Utils/Tauri/TauriBridge';
@@ -15,42 +12,20 @@ import TauriBridge, {
 /**
  * Create the EventsFunctionCodeWriter that writes generated code for events
  * functions to local files, through TauriBridge.
- *
- * This mirrors `makeLocalEventsFunctionCodeWriter`: the generated code is
- * written under the app's cache directory rather than the OS temp directory
- * (Tauri has no bundled Node `os.tmpdir()`; `env.appCacheDir` is the
- * equivalent well-known dir, resolved once by `TauriBridge.init()`), but
- * both are meant to survive for the life of the preview and be referenced
- * by an absolute path that the preview export copies in
- * (`getIncludeFileFor`).
- *
- * Unlike the Browser code writers (SW-based: stored to IndexedDB, only
- * readable by a service worker; S3-based: uploaded to the cloud), this one
- * fits a local, offline preview - see ADR-001-tauri-mvp.md §2.4. Neither
- * Browser writer's include paths (an IndexedDB key, an S3 URL) are usable
- * from a local preview window with no IPC capabilities.
  */
 export const makeTauriEventsFunctionCodeWriter = ({
   env,
   onWriteFile,
 }: {|
   ...EventsFunctionCodeWriterCallbacks,
-  /** The resolved value of `TauriBridge.init()` - see TauriPreviewLauncher. */
   env: TauriBridgeEnv,
 |}): EventsFunctionCodeWriter => {
-  // The generated code for extensions is stored in a dedicated subfolder of
-  // the app's cache directory, unique to this editor session, so multiple
-  // GDevelop windows/tabs never clash.
+  // Unique per session so multiple editor windows don't clash.
   const outputDir = `${env.appCacheDir}${
     env.pathSeparator
   }GDGeneratedEventsFunctions-${makeTimestampedId()}`;
 
-  // `getIncludeFileFor` (below) must stay synchronous: it's called a lot,
-  // including during render, exactly like `ResourcesLoader.getFullUrl`
-  // (TauriBridge-contract.md §5). This is still fine without a bridge-sync
-  // exception, because building this path is pure string concatenation
-  // against `env` (already resolved once by `init()`) - no IPC call is
-  // made here, unlike `getResourceUrlSync`.
+  // Pure string concatenation, no IPC - safe to stay synchronous.
   const getPathFor = (codeNamespace: string): string =>
     `${outputDir}${env.pathSeparator}${slugs(codeNamespace)}.js`;
 

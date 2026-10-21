@@ -26,13 +26,7 @@ export type LocalFileDescriptor = {|
 
 type ConstructorArgs = {|
   textFiles: Array<TextFileDescriptor>,
-  /**
-   * The real, absolute, native directory this file system is rooted in
-   * (e.g. `${env.appCacheDir}/preview`). Returned by `getTempDir` for
-   * parity with BrowserFileSystem/LocalFileSystem, and used as the
-   * `outputDir` of the manifest produced by `toExportManifest`/`flush`
-   * when the caller doesn't override it.
-   */
+  /** Real, absolute, native directory this is rooted in. */
   rootDir: string,
 |};
 
@@ -48,22 +42,13 @@ const isURL = (filename: string) => {
 
 // --- Path helpers --------------------------------------------------------
 //
-// BrowserFileSystem's "file system" is entirely virtual, so it can always
-// treat paths as POSIX (and does, via path-browserify, which has no win32
-// implementation - see its index.js). This file system is different: it's
-// an in-memory staging area for a real directory on disk
-// (`${env.appCacheDir}/preview`, TauriBridge-contract.md §4), and that
-// directory is win32-flavored (`C:\Users\...`) on Windows, POSIX-flavored
-// (`/home/...`) elsewhere. Project resources being copied in (`copyFile`'s
-// `source`) can independently be either flavor, matching whatever OS the
-// project was opened on. So every path here is classified by its own
-// content (drive letter, UNC prefix, or a backslash), not by `env.platform`
-// - this keeps the two flavors correct even when mixed in the same export,
-// and keeps this file testable on any OS (see B6's win32 + posix tests).
-//
-// This can't reuse Node's `path` module (only TauriBridge.js may touch
-// `optionalRequire('path')`, contract §6) nor `path-browserify` (posix
-// only), so the minimal subset needed here is hand-rolled below.
+// Unlike BrowserFileSystem (always POSIX, purely virtual), this stages a
+// real on-disk directory that's win32-flavored on Windows and POSIX
+// elsewhere, while incoming resource paths can independently be either
+// flavor. Each path is classified by its own content (drive letter, UNC
+// prefix, backslash), not by platform, so mixed exports stay correct.
+// Hand-rolled since neither Node's `path` nor posix-only `path-browserify`
+// is available here.
 
 const WIN32_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
 const WIN32_UNC_RE = /^\\\\([^\\/]+)[\\/]([^\\/]+)[\\/]?/;
@@ -76,10 +61,7 @@ const isPosixAbsolute = (aPath: string): boolean => aPath.charAt(0) === '/';
 const isAbsolutePath = (aPath: string): boolean =>
   isURL(aPath) || isWindowsAbsolute(aPath) || isPosixAbsolute(aPath);
 
-// Does this specific path look win32-flavored? (drive/UNC root, or any
-// backslash - a bare relative path with no separator at all is ambiguous
-// and treated as POSIX, matching how BrowserFileSystem already treats every
-// relative path coming from the exporter.)
+// A bare relative path with no separator is ambiguous and treated as POSIX.
 const isWin32Flavored = (aPath: string): boolean =>
   isWindowsAbsolute(aPath) || aPath.indexOf('\\') !== -1;
 
@@ -194,15 +176,10 @@ const relativePath = (fromDirectory: string, toPath: string): string => {
 };
 
 /**
- * An in-memory "file system" used to stage a GDevelop export (preview or
- * otherwise) before it's flushed to real disk by Rust through
- * `TauriBridge.flushExport`. Adapted from BrowserFileSystem, which this
- * can't reuse as-is (ADR-001-tauri-mvp.md §2.5): its `copyFile` rejects
- * local absolute-path sources, and its path helpers are POSIX-only so a
- * `C:\...` source is never recognized as absolute. Here, `copyFile` always
- * records a local source (never rejects it) so it reaches the export
- * manifest's `filesToCopy`, and path handling works for both win32 and
- * POSIX absolute paths.
+ * In-memory "file system" staging a GDevelop export before Rust flushes it
+ * to disk. Adapted from BrowserFileSystem, whose `copyFile` rejects local
+ * absolute-path sources and whose paths are POSIX-only; here `copyFile`
+ * always records a local source, and paths work for both win32 and POSIX.
  */
 export default class TauriExportFileSystem {
   _rootDir: string;
@@ -334,11 +311,8 @@ export default class TauriExportFileSystem {
       return true;
     }
 
-    // Otherwise, this is a local absolute path on disk (a project resource,
-    // GDJS runtime file, or generated events-function code): record it to
-    // be copied by Rust at flush time. Unlike BrowserFileSystem, this is
-    // NOT an error - this is exactly the case BrowserFileSystem drops
-    // silently (ADR-001-tauri-mvp.md §2.5).
+    // A local absolute path: record it for Rust to copy at flush time
+    // (unlike BrowserFileSystem, which drops this case silently).
     this._filesToCopy[normalizedDest] = source;
     return true;
   };
@@ -388,10 +362,7 @@ export default class TauriExportFileSystem {
     );
   };
 
-  /**
-   * Build the `ExportManifest` (TauriBridge-contract.md §1) describing
-   * everything staged in this file system so far.
-   */
+  /** Builds the ExportManifest describing everything staged so far. */
   toExportManifest = ({
     outputDir,
     clearOutputDir,

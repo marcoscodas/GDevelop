@@ -350,9 +350,9 @@ export const generateOnChooseSaveProjectAsLocation = ({
     return { saveAsLocation: null, saveAsOptions: null };
   }
 
-  // Must be called on EVERY save-as (ADR-001 §3 B3 / contract §4): the
-  // native save dialog only scopes the chosen file itself, not the folder
-  // recursively, and nothing is written there yet.
+  // Must be called on EVERY save-as: the native save dialog only scopes the
+  // chosen file itself, not the folder recursively, and nothing is written
+  // there yet.
   await TauriBridge.allowProjectDirectory(await TauriBridge.dirname(filePath));
 
   return {
@@ -523,11 +523,8 @@ export const canFileMetadataBeSafelySavedAs = async (
     showConfirmation: ShowConfirmFunction,
   |}
 ): Promise<boolean> => {
-  // Simplified for MVP: Electron's equivalent blocks saving inside the
-  // app's own install directory (`remote.app.getPath('exe')`), to avoid
-  // losing the project on an app update. TauriBridge contract v1 exposes no
-  // app/install-path equivalent, and ADR-001 does not list this check as
-  // in-scope for Wave 1, so it is always allowed here. Revisit if a later
-  // wave wants this guarded (would need a contract v2 addition).
+  // Electron's equivalent blocks saving inside the app's own install
+  // directory, to avoid losing the project on an app update. TauriBridge
+  // exposes no app/install-path equivalent, so always allowed here.
   return true;
 };

@@ -1,31 +1,19 @@
 //! `http_fetch` — generic HTTPS request proxy, performed from Rust.
 //!
-//! Added post-MVP (TauriBridge contract v1.1, not in the original frozen
-//! v1): the first real Windows run showed GDevelop's own backends (asset
-//! store, tutorials, the GDJS runtime fetch preview depends on) all failing
-//! together. The leading cause is CORS: the browser blocks the WEBVIEW's JS
-//! from *reading* a cross-origin response unless the server's
-//! `Access-Control-Allow-Origin` includes this app's origin
-//! (`https://tauri.localhost` on WebView2) - the request may well reach the
-//! server fine, the browser just refuses to hand the response back to JS.
-//! Rust's HTTP client has no concept of CORS at all, so routing these calls
-//! through Rust sidesteps the problem regardless of server-side config we
-//! don't control.
+//! Routes GDevelop API/asset calls through Rust instead of the webview's
+//! fetch: the webview's CORS policy blocks JS from reading cross-origin
+//! responses unless the server allowlists this app's origin, which
+//! GDevelop's backends don't. Rust's HTTP client has no CORS concept, so
+//! this sidesteps the restriction without server-side changes.
 //!
-//! This command is intentionally generic (any HTTPS URL, not just
-//! GDevelop's own hosts): the caller is 100% first-party GDevelop JS, not
-//! arbitrary remote script, so this grants no capability a normal browser
-//! tab running this same code didn't already have (any page's JS can fetch
-//! any HTTPS URL - CORS restricts *reading the response*, not *sending the
-//! request*). The one restriction enforced here is the scheme itself
-//! (HTTPS only), to keep this a plain network proxy and nothing else (no
-//! `file://`, no internal Tauri IPC scheme).
+//! Generic (any HTTPS URL, not just GDevelop hosts) since the caller is
+//! first-party app JS, not remote script - no capability gained a normal
+//! tab wouldn't already have. HTTPS-only is enforced to keep this a plain
+//! network proxy.
 //!
-//! JS side: `TauriBridge.httpFetch` is consumed by a single custom axios
-//! adapter (`Utils/Tauri/AxiosTauriAdapter.js`), installed once as
-//! `axios.defaults.adapter` when `isTauri()`, so all ~18 existing
-//! `GDevelopServices/*.js` files that already call axios get this for free
-//! - no per-file changes, per the additive-only rule.
+//! Consumed by one axios adapter (`Utils/Tauri/AxiosTauriAdapter.js`),
+//! installed as `axios.defaults.adapter` under Tauri, so every existing
+//! `GDevelopServices/*.js` caller gets this with no per-file changes.
 
 use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -72,19 +60,12 @@ pub async fn http_fetch(request: HttpFetchRequest) -> Result<HttpFetchResponse, 
     let method = reqwest::Method::from_bytes(request.method.to_uppercase().as_bytes())
         .map_err(|e| CommandError::new("UNKNOWN", format!("invalid HTTP method: {e}")))?;
 
-    // No timeout at all would mean a hung backend makes the whole app look
-    // frozen rather than failing cleanly (e.g. the asset store spinning
-    // forever instead of showing an error). 30s matches a generous but
-    // bounded wait for a single API call; this isn't the preview server
-    // (loopback, instant) or a large asset download, just small JSON/text
-    // responses from GDevelop's own APIs.
+    // Without a timeout, a hung backend freezes the app instead of failing
+    // visibly. 30s total; 15s connect so a dead connection is distinguished
+    // from a server that connected but never answered (see is_connect()
+    // below, and Ipv4PreferringResolver).
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        // Diagnostic split, not a fix: if the connection itself (TCP + TLS)
-        // isn't up within 15s, fail as a *connect* timeout (`is_connect()`)
-        // instead of the generic 30s total timeout - so the next real log
-        // tells "never connected" apart from "connected, server never
-        // answered". See `Ipv4PreferringResolver` for why that matters.
         .connect_timeout(Duration::from_secs(15))
         .dns_resolver(ipv4_preferring_resolver())
         .build()
@@ -104,13 +85,8 @@ pub async fn http_fetch(request: HttpFetchRequest) -> Result<HttpFetchResponse, 
 
     let started = Instant::now();
     let response = builder.send().await.map_err(|e| {
-        // reqwest::Error's Display impl is a generic one-line wrapper (e.g.
-        // "error sending request for url (...)") that hides the actual
-        // cause. The first attempt to fix a real Windows failure here
-        // (switching to native TLS roots) turned out to be the wrong guess
-        // - still failing after that fix shipped - so this walks the full
-        // `.source()` chain to get the real underlying error (DNS, TLS
-        // handshake, connect timeout, etc.) instead of guessing again.
+        // reqwest::Error's Display is a generic wrapper; walk .source() for
+        // the real cause (DNS, TLS, connect timeout, etc).
         let mut chain = format!("{e}");
         let mut source = std::error::Error::source(&e);
         while let Some(s) = source {
@@ -160,31 +136,10 @@ pub async fn http_fetch(request: HttpFetchRequest) -> Result<HttpFetchResponse, 
     })
 }
 
-/// DNS resolver for every reqwest client in this app: resolves with the OS
-/// resolver (`getaddrinfo`, exactly like reqwest's default), then keeps only
-/// the IPv4 addresses whenever there is at least one (IPv6 is used only
-/// for IPv6-only hosts/networks), and logs what it resolved.
-///
-/// Evidence behind this (real Windows log, 2026-10-21): every
-/// `resources.gdevelop-app.com` failure lands exactly 30.0s after its
-/// "starting new connection" line - i.e. it is the client's own 30s total
-/// timeout firing on a connection that silently hangs, not a TLS/cert error
-/// (those fail immediately, which is also why switching to native roots
-/// changed nothing), not a refusal, and not a WAF block (that would be an
-/// HTTP 403 *response*, and Cloudflare serves this host fine to a client
-/// with no User-Agent over HTTP/1.1 - checked). The one structural network
-/// difference between the two hosts: `api.gdevelop.io` (CloudFront) has
-/// NO AAAA records, `resources.gdevelop-app.com` (Cloudflare) has three.
-/// So only the failing host ever gives this machine an IPv6 path.
-/// hyper's Happy Eyeballs (300ms IPv4 fallback) only covers the TCP
-/// connect itself; an IPv6 path that completes the TCP handshake but then
-/// stalls (MTU black hole on a tunnel/VPN, a broken IPv6 router) wins that
-/// race and then hangs TLS/HTTP until the timeout - the exact symptom.
-///
-/// This is a theory consistent with the evidence, not a confirmed cause
-/// (the sandbox this was written in has no IPv6 at all). If it is wrong,
-/// the resolver's debug line plus the connect/total-timeout split in
-/// `http_fetch` say what the next run actually saw.
+/// Resolves via the OS resolver, then drops IPv6 addresses when an IPv4
+/// one is also available. Works around networks where an IPv6 route
+/// completes the TCP handshake and then stalls (hyper's Happy Eyeballs
+/// only races the initial connect, not what happens after).
 #[derive(Debug, Default)]
 pub struct Ipv4PreferringResolver;
 

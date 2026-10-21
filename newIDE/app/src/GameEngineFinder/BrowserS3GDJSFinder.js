@@ -11,17 +11,10 @@ const base64ToText = (base64: string): string => {
   return new TextDecoder('utf-8').decode(bytes);
 };
 
-/**
- * `fetch(url).then(response => response.text())`, but routed through Rust
- * under Tauri (TauriBridge-contract.md section 7): the webview would
- * otherwise block reading this response, since `resources.gdevelop-app.com`
- * almost certainly doesn't have this app's origin CORS-allowlisted. Safe to
- * route this specific fetch through Rust because these are plain public
- * runtime files with no cookie/credentials dependency - unlike, say,
- * Utils/BlobDownloader.js's `credentials: 'include'` fetches, which rely on
- * a browser-managed cookie a Rust HTTP client has no access to at all and
- * must NOT be blindly proxied the same way.
- */
+// Under Tauri, the webview's CORS policy blocks reading this response, so
+// route through Rust instead. Only safe here because these are public
+// files with no cookie dependency, unlike Utils/BlobDownloader.js's
+// credentialed fetches, which must not be proxied the same way.
 const fetchText = (url: string): Promise<string> => {
   if (!isTauri()) {
     return fetch(url).then(response => {
@@ -112,8 +105,7 @@ export const findGDJS = (
     filesToDownload[fileSet].map(relativeFilePath => {
       const url = gdjsRoot + relativeFilePath;
 
-      // Don't do any caching, rely on the browser cache only (outside Tauri;
-      // the Tauri path has no browser cache to rely on regardless).
+      // Don't do any caching, rely on the browser cache only.
       return fetchText(url).then(text => ({
         filePath: url,
         text,

@@ -24,14 +24,8 @@ tauri-plugin-log = "2"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Async HTTP client for flush_export's filesToDownload. rustls-tls avoids a
-# system OpenSSL build dependency.
-# `rustls-tls-native-roots` (OS trust store via `rustls-native-certs`)
-# instead of `rustls-tls` (= bundled webpki-roots). NOTE: this was shipped
-# as the fix for resources.gdevelop-app.com failing on Windows and did NOT
-# fix it - that failure is a 30s connection hang, not a certificate error
-# (see `Ipv4PreferringResolver` in src/http_fetch.rs). Kept since it works
-# for api.gdevelop.io and matches what the OS trusts.
+# Async HTTP client for flush_export's filesToDownload and http_fetch.
+# native-roots reads the OS trust store instead of a bundled CA list.
 reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls-native-roots"] }
 # http_fetch.rs base64-encodes request/response bodies crossing the JS/Rust
 # boundary uniformly, so neither side has to guess text vs. binary.

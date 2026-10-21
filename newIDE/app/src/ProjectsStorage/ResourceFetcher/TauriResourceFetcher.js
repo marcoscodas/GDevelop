@@ -11,10 +11,8 @@ import UrlStorageProvider from '../UrlStorageProvider';
 import { fetchRelativeResourcesToFullUrls } from '../UrlStorageProvider/UrlResourceFetcher';
 import { localFileStorageProviderInternalName } from '../LocalFileStorageProvider/LocalFileStorageProviderInternalName';
 
-// Resources of a local project are already on disk next to the project
-// file: there is nothing to download after opening it (ADR-001 §1, "out of
-// MVP": downloading URL resources to disk after opening a project stays a
-// no-op; URL resources stay URLs and need network).
+// Local resources are already on disk next to the project file: nothing
+// to fetch.
 const fetchNothing = async (): Promise<FetchAllProjectResourcesResult> => ({
   erroredResources: [],
 });
@@ -30,9 +28,8 @@ const fetchers: {
   // URL. This allows to open local projects uploaded to GitHub for example.
   // $FlowFixMe[incompatible-type]
   [UrlStorageProvider.internalName]: fetchRelativeResourcesToFullUrls,
-  // Without this entry, BrowserResourceFetcher's equivalent map would throw
-  // "Can't find a ResourceFetcher for LocalFile" on every single local
-  // project open (ADR-001 §2 correction 3, §3 B3).
+  // Without this, every local project open throws "Can't find a
+  // ResourceFetcher for LocalFile".
   [localFileStorageProviderInternalName]: fetchNothing,
 };
 

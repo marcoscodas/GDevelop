@@ -1,11 +1,7 @@
-//! Shared command-level error type.
-//!
-//! Every command-level rejection (as opposed to a per-file failure recorded inside
-//! `FlushExportResult.failures`, see `fs_cmds.rs`) serializes to this shape, so the
-//! JS-side `TauriBridge.js` can read `.code` directly instead of parsing a message
-//! string. `code` is always one of the `TauriBridgeErrorCode` variants from the
-//! contract (NOT_FOUND, PERMISSION_DENIED, OUT_OF_SCOPE, ALREADY_EXISTS, IO,
-//! PORT_UNAVAILABLE, WINDOW, UNKNOWN).
+//! Shared command-level error type. Every command rejection serializes to
+//! this shape so `TauriBridge.js` can read `.code` directly instead of
+//! parsing a message string (per-file failures go through
+//! `FlushExportResult.failures` instead, see `fs_cmds.rs`).
 
 use serde::Serialize;
 use std::fmt;
@@ -39,10 +35,8 @@ impl CommandError {
         Self::new("IO", message)
     }
 
-    /// Not currently used by any command here (NOT_FOUND cases we hit today
-    /// — a missing flush_export source, a missing fs_stat_many path — are
-    /// handled as `None`/per-file failures, not command-level rejections),
-    /// kept for completeness of the contract's error-code vocabulary.
+    /// Unused today (NOT_FOUND cases here are per-file failures, not
+    /// command rejections); kept for the contract's error-code vocabulary.
     #[allow(dead_code)]
     pub fn not_found(path: impl Into<String>) -> Self {
         let path = path.into();

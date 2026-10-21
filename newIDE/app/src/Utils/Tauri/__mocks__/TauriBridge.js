@@ -1,21 +1,13 @@
 // @flow
 /**
- * Jest manual mock of `Utils/Tauri/TauriBridge`.
+ * Jest manual mock of `Utils/Tauri/TauriBridge`: every method is a
+ * `jest.fn()`, cancelled dialogs/missing stats resolve `null`.
  *
- * Implements every method of `TauriBridgeInterface` (contract v1, section 2)
- * as a `jest.fn()`, with default resolved values:
- * - `init` resolves a linux `TauriBridgeEnv`;
- * - `showOpenDialog` / `showSaveDialog` resolve `null` (a cancelled dialog is not an error);
- * - `stat` resolves `null` (the path does not exist);
- * - `getResourceUrlSync` is the only synchronous method, and returns a string.
- *
- * Usage:
  *   jest.mock('../Utils/Tauri/TauriBridge');
  *   TauriBridge.stat.mockResolvedValueOnce({ isFile: true, isDirectory: false, size: 1, mtimeMs: 0 });
  *
- * The react-scripts Jest config sets `resetMocks: true`, which wipes the
- * implementations of all `jest.fn()` before each test. The defaults are
- * therefore applied at load time and again in `beforeEach`.
+ * `resetMocks: true` wipes implementations before each test, so defaults
+ * are reapplied in `beforeEach`.
  */
 // $FlowFixMe[cannot-resolve-module] - Node's path module, available in Jest.
 import path from 'path';

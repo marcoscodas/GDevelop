@@ -8,8 +8,7 @@ use crate::error::CommandError;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TauriBridgeEnv {
-    /// "windows" | "macos" | "linux" (std::env::consts::OS; matches the contract's
-    /// TauriPlatform union for the platforms Wave 1 targets).
+    /// "windows" | "macos" | "linux" (std::env::consts::OS).
     pub platform: String,
     pub path_separator: String,
     pub app_cache_dir: String,

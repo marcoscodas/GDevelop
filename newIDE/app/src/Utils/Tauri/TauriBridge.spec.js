@@ -177,27 +177,14 @@ describe('TauriBridge (real implementation)', () => {
     });
   });
 
-  describe('init() console-forwarding safety (post-first-Windows-run fix)', () => {
+  describe('init() console-forwarding safety', () => {
     it('still resolves env even if console.log cannot be reassigned, instead of hanging forever', async () => {
-      // The real suspect behind "the app got stuck on Loading... forever" on
-      // the first real Windows run: attachConsoleOnce() runs BEFORE init()'s
-      // own try/catch (which only wraps invoke('app_env')), so an uncaught
-      // throw there - e.g. if some real WebView2 context protects console
-      // methods in a way this sandbox's WebKitGTK spike and plain Node never
-      // exercised - would reject init()'s promise for a reason that has
-      // nothing to do with whether the app can actually start.
-      //
-      // Simulated via an accessor property whose setter always throws when
-      // invoked, rather than a plain non-writable data property: a sloppy-
-      // mode assignment to a non-writable data property silently no-ops
-      // instead of throwing (only strict mode throws there, and this test
-      // file's own Babel/Jest transform runs in sloppy mode, unlike the
-      // real bundled app, which is always strict as ES modules) - an
-      // accessor setter throws unconditionally either way, which is both
-      // environment-independent and a closer match to "something throws
-      // during this reassignment" in general.
+      // attachConsoleOnce() runs before init()'s own try/catch, so an
+      // uncaught throw there must not reject init() for an unrelated
+      // reason. An accessor setter throws unconditionally in both strict
+      // and sloppy mode, unlike a plain non-writable data property.
       const originalLog = console.log;
-      // $FlowFixMe[cannot-write] - Flow's Console lib type marks `log` read-only; deliberately redefining it for this test.
+      // $FlowFixMe[cannot-write]
       Object.defineProperty(console, 'log', {
         get: () => originalLog,
         set: () => {
@@ -206,13 +193,8 @@ describe('TauriBridge (real implementation)', () => {
         configurable: true,
       });
 
-      // attachConsoleOnce() early-returns under `typeof window === 'undefined'`
-      // - true here, since this whole test file runs under Jest's `node`
-      // environment (not jsdom), not because of anything Tauri-specific.
-      // Without a window stub this test would pass vacuously either way
-      // (the console-patching code is never reached at all), which is
-      // exactly what happened the first time this test was written.
-      // $FlowFixMe[cannot-resolve-name] - Jest `node` env has no real window.
+      // Jest's node env has no window; attachConsoleOnce() needs one to proceed.
+      // $FlowFixMe[cannot-resolve-name]
       global.window = { addEventListener: jest.fn() };
 
       try {

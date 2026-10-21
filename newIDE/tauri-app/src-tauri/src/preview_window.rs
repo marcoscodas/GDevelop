@@ -75,7 +75,11 @@ pub fn preview_window_open<R: Runtime>(
     let emit_label = label.clone();
     window.on_window_event(move |event| {
         if matches!(event, WindowEvent::Destroyed) {
-            let _ = app_handle_for_event.emit("preview-window-closed", emit_label.clone());
+            // Fails only if the main window is also gone (app shutting
+            // down), in which case there is nothing left to notify.
+            if let Err(e) = app_handle_for_event.emit("preview-window-closed", emit_label.clone()) {
+                log::warn!("preview_window: failed to emit close event for {emit_label}: {e}");
+            }
         }
     });
 
@@ -102,7 +106,11 @@ pub fn preview_window_close<R: Runtime>(app: AppHandle<R>, label: String) -> Res
 pub fn preview_window_close_all<R: Runtime>(app: AppHandle<R>) -> Result<(), CommandError> {
     for (label, window) in app.webview_windows() {
         if label.starts_with("preview-") {
-            let _ = window.close();
+            // Best-effort: a window already closing/closed is not an error
+            // worth surfacing when the caller asked to close every preview.
+            if let Err(e) = window.close() {
+                log::warn!("preview_window: failed to close {label}: {e}");
+            }
         }
     }
     Ok(())

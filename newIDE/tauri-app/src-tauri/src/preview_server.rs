@@ -232,13 +232,22 @@ fn accept_loop(listener: TcpListener, root: PathBuf, stop_flag: Arc<AtomicBool>)
             Ok((stream, _addr)) => {
                 let root = root.clone();
                 std::thread::spawn(move || {
-                    let _ = handle_connection(stream, &root);
+                    // A write failure here means the client (the preview
+                    // window) disconnected mid-response - routine when a
+                    // preview window closes, nothing to retry or report.
+                    if let Err(e) = handle_connection(stream, &root) {
+                        log::trace!("preview_server: connection ended: {e}");
+                    }
                 });
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(25));
             }
-            Err(_) => {
+            Err(e) => {
+                // Not WouldBlock: something unexpected (fd exhaustion, OS-level
+                // accept failure). Logged, not propagated - a single bad
+                // accept() must not kill the whole preview server.
+                log::warn!("preview_server: accept() failed: {e}");
                 std::thread::sleep(Duration::from_millis(25));
             }
         }
@@ -250,8 +259,11 @@ fn stop_running(state: &PreviewServerState) {
     if let Some(running) = running {
         running.stop_flag.store(true, Ordering::Relaxed);
         // The accept loop polls the flag roughly every 25ms, so this join
-        // returns quickly.
-        let _ = running.accept_thread.join();
+        // returns quickly. An Err here means the thread panicked - logged,
+        // not propagated, since the server is being stopped either way.
+        if let Err(e) = running.accept_thread.join() {
+            log::warn!("preview_server: accept thread panicked: {e:?}");
+        }
     }
 }
 

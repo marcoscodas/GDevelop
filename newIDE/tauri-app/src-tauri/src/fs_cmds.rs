@@ -278,8 +278,7 @@ async fn download_files(
 
         for handle in handles {
             match handle.await {
-                Ok((dest, Ok(()))) => {
-                    let _ = dest;
+                Ok((_dest, Ok(()))) => {
                     result.downloaded += 1;
                 }
                 Ok((dest, Err(message))) => result.failures.push(FileFailure {
@@ -321,17 +320,19 @@ pub async fn flush_export(manifest: ExportManifest) -> Result<FlushExportResult,
         })? {
             let entry = match entry {
                 Ok(e) => e,
-                Err(_) => continue,
+                Err(e) => {
+                    log::warn!("flush_export: skipping unreadable entry while clearing outputDir: {e}");
+                    continue;
+                }
             };
             let path = entry.path();
-            let remove_result = if path.is_dir() {
+            // Best-effort: an entry we can't remove will simply be
+            // overwritten (files) or left alongside (dirs) below.
+            let _ = if path.is_dir() {
                 std::fs::remove_dir_all(&path)
             } else {
                 std::fs::remove_file(&path)
             };
-            // Best-effort: an entry we can't remove will simply be
-            // overwritten (files) or left alongside (dirs) below.
-            let _ = remove_result;
         }
     }
 

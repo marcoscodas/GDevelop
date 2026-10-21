@@ -28,6 +28,9 @@
 //! - no per-file changes, per the additive-only rule.
 
 use std::collections::HashMap;
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -76,7 +79,14 @@ pub async fn http_fetch(request: HttpFetchRequest) -> Result<HttpFetchResponse, 
     // (loopback, instant) or a large asset download, just small JSON/text
     // responses from GDevelop's own APIs.
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(Duration::from_secs(30))
+        // Diagnostic split, not a fix: if the connection itself (TCP + TLS)
+        // isn't up within 15s, fail as a *connect* timeout (`is_connect()`)
+        // instead of the generic 30s total timeout - so the next real log
+        // tells "never connected" apart from "connected, server never
+        // answered". See `Ipv4PreferringResolver` for why that matters.
+        .connect_timeout(Duration::from_secs(15))
+        .dns_resolver(ipv4_preferring_resolver())
         .build()
         .map_err(|e| CommandError::new("UNKNOWN", format!("failed to build HTTP client: {e}")))?;
     let mut builder = client.request(method, &request.url);
@@ -92,6 +102,7 @@ pub async fn http_fetch(request: HttpFetchRequest) -> Result<HttpFetchResponse, 
 
     log::debug!("http_fetch: {} {}", request.method, request.url);
 
+    let started = Instant::now();
     let response = builder.send().await.map_err(|e| {
         // reqwest::Error's Display impl is a generic one-line wrapper (e.g.
         // "error sending request for url (...)") that hides the actual
@@ -106,7 +117,13 @@ pub async fn http_fetch(request: HttpFetchRequest) -> Result<HttpFetchResponse, 
             chain.push_str(&format!(" <- {s}"));
             source = s.source();
         }
-        log::warn!("http_fetch: request failed for {}: {chain} | debug: {e:?}", request.url);
+        log::warn!(
+            "http_fetch: request failed for {} after {:?} (timeout={}, connect={}): {chain} | debug: {e:?}",
+            request.url,
+            started.elapsed(),
+            e.is_timeout(),
+            e.is_connect(),
+        );
         CommandError::io(format!("request failed: {chain}"))
     })?;
 
@@ -141,4 +158,108 @@ pub async fn http_fetch(request: HttpFetchRequest) -> Result<HttpFetchResponse, 
         headers,
         body_base64: BASE64.encode(&bytes),
     })
+}
+
+/// DNS resolver for every reqwest client in this app: resolves with the OS
+/// resolver (`getaddrinfo`, exactly like reqwest's default), then keeps only
+/// the IPv4 addresses whenever there is at least one (IPv6 is used only
+/// for IPv6-only hosts/networks), and logs what it resolved.
+///
+/// Evidence behind this (real Windows log, 2026-10-21): every
+/// `resources.gdevelop-app.com` failure lands exactly 30.0s after its
+/// "starting new connection" line - i.e. it is the client's own 30s total
+/// timeout firing on a connection that silently hangs, not a TLS/cert error
+/// (those fail immediately, which is also why switching to native roots
+/// changed nothing), not a refusal, and not a WAF block (that would be an
+/// HTTP 403 *response*, and Cloudflare serves this host fine to a client
+/// with no User-Agent over HTTP/1.1 - checked). The one structural network
+/// difference between the two hosts: `api.gdevelop.io` (CloudFront) has
+/// NO AAAA records, `resources.gdevelop-app.com` (Cloudflare) has three.
+/// So only the failing host ever gives this machine an IPv6 path.
+/// hyper's Happy Eyeballs (300ms IPv4 fallback) only covers the TCP
+/// connect itself; an IPv6 path that completes the TCP handshake but then
+/// stalls (MTU black hole on a tunnel/VPN, a broken IPv6 router) wins that
+/// race and then hangs TLS/HTTP until the timeout - the exact symptom.
+///
+/// This is a theory consistent with the evidence, not a confirmed cause
+/// (the sandbox this was written in has no IPv6 at all). If it is wrong,
+/// the resolver's debug line plus the connect/total-timeout split in
+/// `http_fetch` say what the next run actually saw.
+#[derive(Debug, Default)]
+pub struct Ipv4PreferringResolver;
+
+pub fn ipv4_preferring_resolver() -> Arc<Ipv4PreferringResolver> {
+    Arc::new(Ipv4PreferringResolver)
+}
+
+impl reqwest::dns::Resolve for Ipv4PreferringResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(async move {
+            let started = Instant::now();
+            // Port 0: reqwest/hyper overwrite the port with the URL's own.
+            let lookup_host = host.clone();
+            let resolved: Vec<SocketAddr> = tauri::async_runtime::spawn_blocking(move || {
+                (lookup_host.as_str(), 0)
+                    .to_socket_addrs()
+                    .map(|addrs| addrs.collect::<Vec<_>>())
+            })
+            .await
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?
+            .map_err(|e| {
+                log::warn!("http_fetch: DNS lookup failed for {host} after {:?}: {e}", started.elapsed());
+                Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let chosen = prefer_ipv4(&resolved);
+            log::debug!(
+                "http_fetch: resolved {host} in {:?} -> {resolved:?}, using {chosen:?}",
+                started.elapsed()
+            );
+            Ok(Box::new(chosen.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+/// IPv4 addresses only (in the OS's order) when there are any; otherwise
+/// everything unchanged, so an IPv6-only host or network still works.
+fn prefer_ipv4(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
+    let v4: Vec<SocketAddr> = addrs.iter().copied().filter(SocketAddr::is_ipv4).collect();
+    if v4.is_empty() {
+        addrs.to_vec()
+    } else {
+        v4
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prefer_ipv4;
+    use std::net::SocketAddr;
+
+    fn a(s: &str) -> SocketAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn drops_ipv6_when_ipv4_is_available_keeping_os_order() {
+        let input = [
+            a("[2606:4700:20::681a:941]:0"),
+            a("104.26.9.65:0"),
+            a("[2606:4700:20::681a:841]:0"),
+            a("172.67.74.45:0"),
+        ];
+        assert_eq!(prefer_ipv4(&input), vec![a("104.26.9.65:0"), a("172.67.74.45:0")]);
+    }
+
+    #[test]
+    fn keeps_ipv6_for_ipv6_only_hosts() {
+        let input = [a("[2606:4700:20::681a:941]:0")];
+        assert_eq!(prefer_ipv4(&input), input.to_vec());
+    }
+
+    #[test]
+    fn ipv4_only_input_is_unchanged() {
+        let input = [a("3.162.112.73:0"), a("3.162.112.55:0")];
+        assert_eq!(prefer_ipv4(&input), input.to_vec());
+    }
 }

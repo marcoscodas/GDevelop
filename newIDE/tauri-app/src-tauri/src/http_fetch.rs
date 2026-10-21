@@ -93,8 +93,21 @@ pub async fn http_fetch(request: HttpFetchRequest) -> Result<HttpFetchResponse, 
     log::debug!("http_fetch: {} {}", request.method, request.url);
 
     let response = builder.send().await.map_err(|e| {
-        log::warn!("http_fetch: request failed for {}: {e}", request.url);
-        CommandError::io(format!("request failed: {e}"))
+        // reqwest::Error's Display impl is a generic one-line wrapper (e.g.
+        // "error sending request for url (...)") that hides the actual
+        // cause. The first attempt to fix a real Windows failure here
+        // (switching to native TLS roots) turned out to be the wrong guess
+        // - still failing after that fix shipped - so this walks the full
+        // `.source()` chain to get the real underlying error (DNS, TLS
+        // handshake, connect timeout, etc.) instead of guessing again.
+        let mut chain = format!("{e}");
+        let mut source = std::error::Error::source(&e);
+        while let Some(s) = source {
+            chain.push_str(&format!(" <- {s}"));
+            source = s.source();
+        }
+        log::warn!("http_fetch: request failed for {}: {chain} | debug: {e:?}", request.url);
+        CommandError::io(format!("request failed: {chain}"))
     })?;
 
     let status = response.status().as_u16();

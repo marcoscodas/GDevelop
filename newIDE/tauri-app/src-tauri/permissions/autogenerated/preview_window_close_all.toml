@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-window-close-all"
+description = "Enables the preview_window_close_all command without any pre-configured scope."
+commands.allow = ["preview_window_close_all"]
+
+[[permission]]
+identifier = "deny-preview-window-close-all"
+description = "Denies the preview_window_close_all command without any pre-configured scope."
+commands.deny = ["preview_window_close_all"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-window-open"
+description = "Enables the preview_window_open command without any pre-configured scope."
+commands.allow = ["preview_window_open"]
+
+[[permission]]
+identifier = "deny-preview-window-open"
+description = "Denies the preview_window_open command without any pre-configured scope."
+commands.deny = ["preview_window_open"]

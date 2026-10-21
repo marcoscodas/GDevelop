@@ -1,0 +1,44 @@
+// TauriBridge contract v1 section 6: in Tauri code, only src/Utils/Tauri/TauriBridge.js
+// may import @tauri-apps/* or call optionalRequire(...). Nested ESLint configs replace
+// (not merge) rule options, so the root package.json rules are restated here.
+{
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@lingui/react",
+            "importNames": [
+              "Trans"
+            ],
+            "message": "Please import Trans from @lingui/macro"
+          },
+          {
+            "name": "prop-types",
+            "message": "Don't import anything from prop-types - use Flow/TypeScript types instead."
+          }
+        ],
+        "patterns": [
+          {
+            "group": [
+              "@tauri-apps/*"
+            ],
+            "message": "Only src/Utils/Tauri/TauriBridge.js may import @tauri-apps/* (TauriBridge contract section 6). Call TauriBridge instead."
+          }
+        ]
+      }
+    ],
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "MemberExpression[object.property.name='constructor'][property.name='name']",
+        "message": "'constructor.name' is not reliable (can become 'E', 'P' and etc.) in production build."
+      },
+      {
+        "selector": "CallExpression[callee.name='optionalRequire']",
+        "message": "Call TauriBridge instead"
+      }
+    ]
+  }
+}

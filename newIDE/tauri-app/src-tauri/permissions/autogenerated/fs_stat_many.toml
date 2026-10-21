@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-fs-stat-many"
+description = "Enables the fs_stat_many command without any pre-configured scope."
+commands.allow = ["fs_stat_many"]
+
+[[permission]]
+identifier = "deny-fs-stat-many"
+description = "Denies the fs_stat_many command without any pre-configured scope."
+commands.deny = ["fs_stat_many"]

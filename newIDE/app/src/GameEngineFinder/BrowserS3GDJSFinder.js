@@ -1,6 +1,45 @@
 // @flow
 import Window from '../Utils/Window';
 import { getIDEVersionWithHash } from '../Version';
+import TauriBridge from '../Utils/Tauri/TauriBridge';
+import { isTauri } from '../Utils/Tauri/isTauri';
+
+const base64ToText = (base64: string): string => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
+};
+
+// Under Tauri, the webview's CORS policy blocks reading this response, so
+// route through Rust instead. Only safe here because these are public
+// files with no cookie dependency, unlike Utils/BlobDownloader.js's
+// credentialed fetches, which must not be proxied the same way.
+const fetchText = (url: string): Promise<string> => {
+  if (!isTauri()) {
+    return fetch(url).then(response => {
+      if (!response.ok) {
+        console.error(`Error while downloading "${url}"`, response);
+        throw new Error(
+          `Error while downloading "${url}" (status: ${response.status})`
+        );
+      }
+      return response.text();
+    });
+  }
+
+  return TauriBridge.httpFetch({ method: 'GET', url, headers: {} }).then(
+    result => {
+      if (result.status < 200 || result.status >= 300) {
+        console.error(`Error while downloading "${url}"`, result);
+        throw new Error(
+          `Error while downloading "${url}" (status: ${result.status})`
+        );
+      }
+      return base64ToText(result.bodyBase64);
+    }
+  );
+};
 
 type FileSet =
   | 'preview'
@@ -67,18 +106,10 @@ export const findGDJS = (
       const url = gdjsRoot + relativeFilePath;
 
       // Don't do any caching, rely on the browser cache only.
-      return fetch(url).then(response => {
-        if (!response.ok) {
-          console.error(`Error while downloading "${url}"`, response);
-          throw new Error(
-            `Error while downloading "${url}" (status: ${response.status})`
-          );
-        }
-        return response.text().then(text => ({
-          filePath: url,
-          text,
-        }));
-      });
+      return fetchText(url).then(text => ({
+        filePath: url,
+        text,
+      }));
     })
   ).then(filesContent => {
     return {

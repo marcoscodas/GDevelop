@@ -2,6 +2,8 @@
 import { addGDevelopResourceTokenIfRequired } from '../Utils/CrossOrigin';
 import optionalRequire from '../Utils/OptionalRequire';
 import { encodeLocalFileNameForUrl } from '../Utils/PercentEncodedFileName';
+import { isTauri } from '../Utils/Tauri/isTauri';
+import TauriBridge from '../Utils/Tauri/TauriBridge';
 const electron = optionalRequire('electron');
 const path = optionalRequire('path');
 
@@ -122,6 +124,21 @@ export default class ResourcesLoader {
     urlOrFilename: string,
     { isResourceForPixi, disableCacheBurst }: LoadingOptions
   ): string {
+    if (isTauri() && isLocalFile(urlOrFilename) && project.getProjectFile()) {
+      const cachedUrl = ResourcesLoader._cache.getCachedUrl(
+        project,
+        urlOrFilename
+      );
+      if (cachedUrl) return cachedUrl;
+
+      return this._cache.cacheLocalFileUrl(
+        project,
+        urlOrFilename,
+        TauriBridge.getResourceUrlSync(project.getProjectFile(), urlOrFilename),
+        !!disableCacheBurst
+      );
+    }
+
     if (!!electron && isLocalFile(urlOrFilename)) {
       const cachedUrl = ResourcesLoader._cache.getCachedUrl(
         project,

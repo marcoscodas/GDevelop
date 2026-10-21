@@ -233,14 +233,6 @@ const writeProjectFiles = async ({
   );
 };
 
-// Simplified for MVP: Electron's `canFileMetadataBeSafelySaved(As)` blocks
-// saving inside the app's own install directory
-// (`remote.app.getPath('exe')`), to avoid losing the project on an app
-// update. TauriBridge contract v1 exposes no app/install-path equivalent,
-// and ADR-001 does not list this check as in-scope for Wave 1, so it is
-// always allowed here. Revisit if Gate 1 wants this guarded (would need a
-// contract v2 addition).
-
 export const onSaveProject = async (
   project: gdProject,
   fileMetadata: FileMetadata,
@@ -531,7 +523,11 @@ export const canFileMetadataBeSafelySavedAs = async (
     showConfirmation: ShowConfirmFunction,
   |}
 ): Promise<boolean> => {
-  // See the simplification note above `onSaveProject`: no forbidden-path
-  // check is done under Tauri in the MVP.
+  // Simplified for MVP: Electron's equivalent blocks saving inside the
+  // app's own install directory (`remote.app.getPath('exe')`), to avoid
+  // losing the project on an app update. TauriBridge contract v1 exposes no
+  // app/install-path equivalent, and ADR-001 does not list this check as
+  // in-scope for Wave 1, so it is always allowed here. Revisit if a later
+  // wave wants this guarded (would need a contract v2 addition).
   return true;
 };

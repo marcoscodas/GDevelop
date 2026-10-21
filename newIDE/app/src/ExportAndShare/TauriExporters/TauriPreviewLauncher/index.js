@@ -10,17 +10,9 @@ import {
 } from '../../PreviewLauncher.flow';
 import Window from '../../../Utils/Window';
 import { getIDEVersionWithHash } from '../../../Version';
-// TauriBridge does not exist yet in this worktree (B1's deliverable,
-// written in parallel - see ADR-001-tauri-mvp.md §3 and
-// TauriBridge-contract.md). This import is correct per the contract and
-// will resolve once Gate 1 merges B1. Per the Wave-1 lint rule (contract
-// §6), TauriBridge.js is the only file allowed to import `@tauri-apps/*` or
-// call `optionalRequire` for platform access: every other Tauri file,
-// including this one, goes through it instead.
-import TauriBridge, {
-  type TauriBridgeEnv,
-  type Unlisten,
-} from '../../../Utils/Tauri/TauriBridge';
+// Only TauriBridge.js may import `@tauri-apps/*` or call `optionalRequire`
+// for platform access (contract §6); every other Tauri file goes through it.
+import TauriBridge, { type TauriBridgeEnv } from '../../../Utils/Tauri/TauriBridge';
 
 const gd: libGDevelop = global.gd;
 
@@ -84,13 +76,6 @@ export default class TauriPreviewLauncher extends React.Component<
     error: null,
   };
 
-  // Labels of the currently open preview windows, so closeAllPreviews can
-  // close exactly those (closeAllPreviewWindows is also available and used
-  // directly, this set is only kept for completeness/future use, e.g. a
-  // per-window close action).
-  _openPreviewWindowLabels: Set<string> = new Set();
-  _unlistenPreviewWindowClosed: ?Unlisten = null;
-
   canDoNetworkPreview = (): boolean => false;
 
   getPreviewDebuggerServer(): any {
@@ -102,25 +87,10 @@ export default class TauriPreviewLauncher extends React.Component<
   }
 
   closeAllPreviews = (): void => {
-    TauriBridge.closeAllPreviewWindows()
-      .then(() => {
-        this._openPreviewWindowLabels.clear();
-      })
-      .catch(error => {
-        console.info('Unable to close all preview windows - ignoring.', error);
-      });
+    TauriBridge.closeAllPreviewWindows().catch(error => {
+      console.info('Unable to close all preview windows - ignoring.', error);
+    });
   };
-
-  _unsubscribePreviewWindowClosed = () => {
-    if (this._unlistenPreviewWindowClosed) {
-      this._unlistenPreviewWindowClosed();
-      this._unlistenPreviewWindowClosed = null;
-    }
-  };
-
-  componentWillUnmount() {
-    this._unsubscribePreviewWindowClosed();
-  }
 
   launchPreview = async (previewOptions: PreviewOptions): Promise<any> => {
     this.setState({ error: null });
@@ -263,23 +233,15 @@ export default class TauriPreviewLauncher extends React.Component<
 
       const server = await TauriBridge.startPreviewServer(outputDir);
 
-      this._unsubscribePreviewWindowClosed();
-      this._unlistenPreviewWindowClosed = await TauriBridge.onPreviewWindowClosed(
-        label => {
-          this._openPreviewWindowLabels.delete(label);
-        }
-      );
-
       const windowsToOpen = Math.max(1, numberOfWindows || 1);
       for (let i = 0; i < windowsToOpen; i++) {
-        const handle = await TauriBridge.openPreviewWindow({
+        await TauriBridge.openPreviewWindow({
           url: server.origin + '/index.html',
           title: `Preview of ${project.getName()}`,
           width: project.getGameResolutionWidth(),
           height: project.getGameResolutionHeight(),
           alwaysOnTop: previewOptions.getIsAlwaysOnTopInPreview(),
         });
-        this._openPreviewWindowLabels.add(handle.label);
       }
     } catch (error) {
       console.error(

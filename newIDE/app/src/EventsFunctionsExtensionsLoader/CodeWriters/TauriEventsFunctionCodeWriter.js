@@ -5,14 +5,9 @@ import {
 } from '..';
 import { makeTimestampedId } from '../../Utils/TimestampedId';
 import slugs from 'slugs';
-// TauriBridge does not exist yet in this worktree (B1's deliverable, see
-// ADR-001-tauri-mvp.md §2.4 and §3, and TauriBridge-contract.md §4). This
-// import is correct per the contract and will resolve once Gate 1 merges
-// B1. Per the Wave-1 lint rule (contract §6), only TauriBridge.js may
-// import `@tauri-apps/*` or call `optionalRequire` for platform access:
-// every other Tauri file, including this one, goes through it instead -
-// generated code is written with `TauriBridge.writeTextFile`, never a raw
-// `fs` call.
+// Only TauriBridge.js may import `@tauri-apps/*` or call `optionalRequire`
+// for platform access (contract §6): generated code is written with
+// `TauriBridge.writeTextFile`, never a raw `fs` call.
 import TauriBridge, {
   type TauriBridgeEnv,
 } from '../../Utils/Tauri/TauriBridge';

@@ -1,12 +1,7 @@
 // @flow
 import { decodePercentEncodedFileName } from '../../Utils/PercentEncodedFileName';
-// TauriBridge does not exist yet in this worktree (it's B1's deliverable,
-// written in parallel - see ADR-001-tauri-mvp.md §3 and
-// TauriBridge-contract.md). This import is correct per the contract and
-// will resolve once Gate 1 merges B1. Per the Wave-1 lint rule (contract
-// §6), TauriBridge.js is the only file allowed to import `@tauri-apps/*` or
-// call `optionalRequire` for platform access (fs, path, electron, ...): every
-// other Tauri file, including this one, goes through it instead.
+// Only TauriBridge.js may import `@tauri-apps/*` or call `optionalRequire`
+// for platform access (contract §6); every other Tauri file goes through it.
 import TauriBridge, {
   type ExportManifest,
   type FlushExportResult,

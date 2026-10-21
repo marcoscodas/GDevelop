@@ -30,13 +30,6 @@ import BrowserLoginProvider from './LoginProvider/BrowserLoginProvider';
 
 import TauriBridge, { type TauriBridgeEnv } from './Utils/Tauri/TauriBridge';
 
-// --- Forward references (Gate 1) -------------------------------------------
-// None of the five imports below exist yet in this worktree: B3 and B4 are
-// building them in parallel, in their own worktrees. This file - and a build
-// of this worktree in isolation - only becomes buildable once every Wave-1
-// branch lands at Gate 1. See this builder's final report for the exact
-// paths/export names, which are the agreed contract other builders are
-// coding against.
 import TauriFileStorageProvider from './ProjectsStorage/TauriFileStorageProvider';
 import TauriResourceFetcher from './ProjectsStorage/ResourceFetcher/TauriResourceFetcher';
 import TauriResourceMover from './ProjectsStorage/ResourceMover/TauriResourceMover';
@@ -70,9 +63,15 @@ const unregisterAnyExistingServiceWorkers = () => {
     .getRegistrations()
     .then(registrations => {
       registrations.forEach(registration => {
+        // Best-effort: there is no registration to unregister on most
+        // platforms (that's the point of this function), so a rejection
+        // here is the expected case, not an error to surface.
         registration.unregister().catch(() => {});
       });
     })
+    // Startup must not depend on this diagnostic cleanup succeeding; the SW
+    // APIs themselves being unsupported/erroring is not a reason to block
+    // rendering the editor.
     .catch(() => {});
 };
 

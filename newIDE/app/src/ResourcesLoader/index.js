@@ -131,7 +131,6 @@ export default class ResourcesLoader {
       );
       if (cachedUrl) return cachedUrl;
 
-      // Support local filesystem with Tauri (asset protocol URL).
       return this._cache.cacheLocalFileUrl(
         project,
         urlOrFilename,
